@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-server
+.data
+logs
+*.log
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+coverage
+.DS_Store
+*.md
+repro.ts
+db-check.*
+ws-check.*

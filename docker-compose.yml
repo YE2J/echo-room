@@ -1,0 +1,92 @@
+# ============================================================
+# 匿名回音 一键部署：app + postgres + redis（+ 可选 ollama）
+# 使用：cp .env.example .env 并填写密钥后  docker compose up -d
+# ============================================================
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: echo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-echo_pw_change_me}
+      POSTGRES_DB: echoroom
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U echo -d echoroom"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [echo-net]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # 单实例也启用 AOF 无意义；保持默认内存模式即可（仅做 Pub/Sub，不落业务数据）
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [echo-net]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      COZE_PROJECT_ENV: PROD
+      PORT: "5000"
+      JWT_SECRET: ${JWT_SECRET:?必须在 .env 中设置 JWT_SECRET}
+      MESSAGE_ENCRYPTION_KEY: ${MESSAGE_ENCRYPTION_KEY:?必须在 .env 中设置 MESSAGE_ENCRYPTION_KEY(base64 32B)}
+      DATABASE_URL: postgres://echo:${POSTGRES_PASSWORD:-echo_pw_change_me}@postgres:5432/echoroom
+      REDIS_URL: redis://redis:6379
+      VAULT_K: ${VAULT_K:-2}
+      VAULT_N: ${VAULT_N:-3}
+      VAULT_AUTO_UNSEAL_SHARES: ${VAULT_AUTO_UNSEAL_SHARES:-}
+      ADMIN_USERNAMES: ${ADMIN_USERNAMES:-admin}
+      BOOTSTRAP_INVITE_CODES: ${BOOTSTRAP_INVITE_CODES:-}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-12}
+      MAX_MESSAGE_LENGTH: ${MAX_MESSAGE_LENGTH:-1000}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-43200}
+      LLM_NORMALIZE_ENABLED: ${LLM_NORMALIZE_ENABLED:-true}
+      LLM_PROVIDER: ${LLM_PROVIDER:-off}
+      LLM_ON_FAILURE: ${LLM_ON_FAILURE:-passthrough}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-8000}
+      LLM_OPENAI_BASE_URL: ${LLM_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      LLM_OPENAI_API_KEY: ${LLM_OPENAI_API_KEY:-}
+      LLM_OPENAI_MODEL: ${LLM_OPENAI_MODEL:-gpt-4o-mini}
+      LLM_OLLAMA_BASE_URL: http://ollama:11434
+      LLM_OLLAMA_MODEL: ${LLM_OLLAMA_MODEL:-qwen2.5:7b}
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_REDIRECT_URI: ${OIDC_REDIRECT_URI:-}
+    ports:
+      - "${APP_PORT:-5000}:5000"
+    networks: [echo-net]
+
+  # 可选：本地 LLM（语气归一化）。启动：docker compose --profile ollama up -d
+  # 首次需拉取模型：docker compose exec ollama ollama pull qwen2.5:7b
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    networks: [echo-net]
+
+volumes:
+  pgdata:
+  ollama:
+
+networks:
+  echo-net:
+    driver: bridge
