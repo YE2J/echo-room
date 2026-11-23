@@ -1,11 +1,13 @@
 // ABOUTME: 永不退出的健康检查与诊断接口。
 // /api/health 永远返回 200，各子系统状态如实上报（DB 挂了也 200，供部署后 HTTP 自查）；
-// /api/health/diag 返回环境变量 key 名（绝不返回值）、路径、可写性等诊断信息。
+// /api/health/diag 返回环境变量 key 名（绝不返回值）、路径、可写性等诊断信息（生产仅管理员可见）。
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { FastifyRequest } from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import type { AppConfig } from '../config';
+import { verifyToken } from '../crypto/token';
 
 export interface HealthState {
   env: string;
@@ -48,6 +50,14 @@ function isSet(value: string | undefined): boolean {
   return value !== undefined && value !== '';
 }
 
+/** 从 Authorization: Bearer 头提取 token（/api/health/diag 生产鉴权用，不依赖 DB） */
+function extractBearer(request: FastifyRequest): string | null {
+  const header = request.headers.authorization;
+  if (!header) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  return match ? match[1].trim() : null;
+}
+
 export function registerHealthRoutes(
   app: FastifyInstance,
   config: AppConfig,
@@ -59,7 +69,7 @@ export function registerHealthRoutes(
     return {
       status: 'ok',
       env: state.env,
-      // env=密钥来自环境变量；ephemeral=配置非法已降级为临时随机密钥（重启即失去旧密文）
+      // env=密钥来自环境变量/密钥文件；ephemeral=配置非法已降级为临时随机密钥（重启即失去旧密文）
       secretSource: config.secretSource,
       db: state.db,
       dbError: state.dbError,
@@ -77,14 +87,29 @@ export function registerHealthRoutes(
   });
 
   app.get('/api/health/diag', async (request, reply) => {
-    // 生产环境默认关闭诊断明细（会暴露全部环境变量名、路径、目录内容）。
-    // 需要时显式设置 HEALTH_DIAG_TOKEN，并带请求头 x-diag-token 访问。
-    const diagToken = process.env.HEALTH_DIAG_TOKEN;
-    if (config.isProd && !diagToken) {
-      return reply.code(404).send({ error: 'not found' });
-    }
-    if (diagToken && request.headers['x-diag-token'] !== diagToken) {
-      return reply.code(403).send({ error: 'forbidden' });
+    // 生产环境诊断信息（env 键名/路径/可写性）属敏感情报，仅管理员可见；开发环境保持开放
+    if (config.isProd) {
+      const token = extractBearer(request);
+      if (!token) {
+        await reply.code(401).send({ error: '未登录' });
+        return reply;
+      }
+      let role: string;
+      let username: string;
+      try {
+        const payload = verifyToken(token, config.jwtSecret);
+        role = payload.role;
+        username = payload.username;
+      } catch {
+        await reply.code(401).send({ error: '登录已过期，请重新登录' });
+        return reply;
+      }
+      const isAdmin =
+        role === 'admin' || config.adminUsernames.includes(username.toLowerCase());
+      if (!isAdmin) {
+        await reply.code(403).send({ error: '仅管理员可访问诊断信息' });
+        return reply;
+      }
     }
     const cwd = process.cwd();
     const distDir = path.resolve(cwd, 'dist');

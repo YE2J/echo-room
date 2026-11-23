@@ -50,8 +50,10 @@ const toggleSchema = z.object({
 });
 
 export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void {
-  // 保险库状态：允许匿名探测（登录页据此提示注册可用性），只暴露状态枚举与门限参数
-  app.get('/api/admin/vault/status', async (_request, reply) => {
+  // 保险库状态属敏感情报（匿名性产品里「当前是否可溯源」是关键情报），仅管理员可见
+  app.get('/api/admin/vault/status', async (request, reply) => {
+    const admin = await requireAdmin(request, reply, ctx);
+    if (!admin) return reply;
     return reply.send(await ctx.vault.status());
   });
 

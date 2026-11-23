@@ -1,7 +1,8 @@
 {
   "name": "echo-room",
   "version": "0.5.0",
-  "description": "匿名回音 Echo Room — 企业内部匿名意见收集/举报聊天室（Fastify+TS / Vite+TS / PostgreSQL / Redis / WebSocket / Shamir 门限溯源）",
+  "description": "企业内部匿名意见收集与举报聊天室：实名准入、发言匿名、Shamir 门限可溯源",
+  "license": "MIT",
   "scripts": {
     "build": "bash ./scripts/build.sh",
     "dev": "bash ./scripts/dev.sh",
@@ -56,6 +57,5 @@
       "esbuild": "^0.27.2",
       "is-generator-function": "1.0.10"
     }
-  },
-  "license": "MIT"
+  }
 }

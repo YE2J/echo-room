@@ -1,20 +1,21 @@
 #!/bin/bash
 # ABOUTME: M3 多聊天室冒烟脚本（HTTP + WS 真实链路验证，开发库）。
-# 依赖：dev server 已运行（默认 localhost:5000）、vault 已解封、一个可用的邀请码（SMOKE_INVITE_CODE）。
-# 用法：bash scripts/m3-smoke.sh
+# 依赖：dev server 已运行（默认 localhost:5000）、vault 已解封、有效引导邀请码可用。
+# 用法：
+#   ADMIN_USER=smoke_admin ADMIN_PASS='...' INVITE='<有效邀请码>' bash scripts/m3-smoke.sh
+# 说明：ADMIN_PASS 必填（${ADMIN_PASS:?} 缺失即报错）；ADMIN_USER / INVITE 可用环境变量覆盖，
+#       未提供 INVITE 时生成随机串（注册将失败，脚本会打印 FAIL，请显式传入库中有效码）。
 set -Eeuo pipefail
 
 PORT="${DEPLOY_RUN_PORT:-5000}"
 BASE="http://localhost:${PORT}"
 WS_BASE="ws://localhost:${PORT}"
 TS="$(date +%s)"
-# 管理员账号/密码必须由调用方提供（不要写进仓库）：
-#   SMOKE_ADMIN_USER 需已在 ADMIN_USERNAMES 中；SMOKE_ADMIN_PASS 为该账号密码
-ADMIN_USER="${SMOKE_ADMIN_USER:?请设置 SMOKE_ADMIN_USER（需出现在 ADMIN_USERNAMES 中）}"
-ADMIN_PASS="${SMOKE_ADMIN_PASS:?请设置 SMOKE_ADMIN_PASS}"
-INVITE_CODE="${SMOKE_INVITE_CODE:?请设置 SMOKE_INVITE_CODE（本次运行要用的邀请码）}"
+ADMIN_USER="${ADMIN_USER:-smoke_admin}"   # ADMIN_USERNAMES 命中则注册后登录即管理员；新库空账号密码自定
+ADMIN_PASS="${ADMIN_PASS:?请通过环境变量提供 ADMIN_PASS}"
+INVITE="${INVITE:-$(openssl rand -hex 8)}"
 PLAIN_USER="m3_plain_${TS}"
-PLAIN_PASS="M3Smoke_Plain_${TS}"
+PLAIN_PASS="m3smoke_plain_${TS}"
 PUB_ROOM="M3PublicA_${TS}"
 PRIV_ROOM="M3PrivateB_${TS}"
 RENAMED_ROOM="M3Requested_Renamed_${TS}"
@@ -39,7 +40,7 @@ echo "# M3 多聊天室冒烟 @ $BASE  ($(date -Is))"
 say "0.1 注册管理员 ${ADMIN_USER}"
 REG=$(curl -s -c "$COOKIE_ADMIN" -X POST "${BASE}/api/auth/register" \
   -H 'Content-Type: application/json' \
-  -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"inviteCode\":\"${INVITE_CODE}\"}" || true)
+  -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"inviteCode\":\"${INVITE}\"}" || true)
 check "注册管理员返回 201/409" "true" "$(node -e "const d=JSON.parse(process.argv[1]);console.log(Boolean(d.alias||d.error).toString())" "$REG" 2>/dev/null)"
 
 say "0.2 管理员登录"
@@ -51,7 +52,7 @@ check "管理员 isAdmin=true" "true" "$(jsonget "$L" isAdmin)"
 say "0.3 注册普通用户 ${PLAIN_USER}"
 RP=$(curl -s -c "$COOKIE_PLAIN" -X POST "${BASE}/api/auth/register" \
   -H 'Content-Type: application/json' \
-  -d "{\"username\":\"${PLAIN_USER}\",\"password\":\"${PLAIN_PASS}\",\"inviteCode\":\"${INVITE_CODE}\"}" || true)
+  -d "{\"username\":\"${PLAIN_USER}\",\"password\":\"${PLAIN_PASS}\",\"inviteCode\":\"${INVITE}\"}" || true)
 check "普通用户注册成功" "true" "$(node -e "const d=JSON.parse(process.argv[1]);console.log(Boolean(d.alias).toString())" "$RP" 2>/dev/null)"
 L2=$(curl -s -c "$COOKIE_PLAIN" -X POST "${BASE}/api/auth/login" \
   -H 'Content-Type: application/json' \

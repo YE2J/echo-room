@@ -4,6 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
+/** 扣子智能体域名默认值：必须由部署方通过 LLM_COZE_API_URL 显式提供，禁止内置任何真实域名 */
+const DEFAULT_COZE_API_URL = '';
+
 function parseBoolean(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined) return defaultValue;
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
@@ -76,8 +79,6 @@ export type LlmFailureStrategy = 'passthrough' | 'reject';
 
 export interface AppConfig {
   isProd: boolean;
-  /** 密钥来源：env=来自环境变量；ephemeral=配置非法时降级的临时随机密钥（重启后旧密文不可解） */
-  secretSource: 'env' | 'ephemeral';
   port: number;
   dbDriver: 'pg' | 'pglite';
   databaseUrl?: string;
@@ -88,6 +89,8 @@ export interface AppConfig {
   dataDirSource: string;
   jwtSecret: string;
   messageEncryptionKey: Buffer;
+  /** 密钥来源：env=来自环境变量/开发密钥文件；ephemeral=配置非法时降级的临时随机密钥（重启后旧密文不可解） */
+  secretSource: 'env' | 'ephemeral';
   tokenTtlSeconds: number;
   vaultK: number;
   vaultN: number;
@@ -108,7 +111,7 @@ export interface AppConfig {
     ollamaModel: string;
     cozeApiUrl: string;
     cozeApiToken: string;
-    /** 扣子「语气改写智能体」所属的编程项目 ID（19 位数字，超出 JS 安全整数，按字符串存） */
+    /** 扣子编程项目 ID（19 位整数，LLM_PROVIDER=coze 时必填），由部署方通过 LLM_COZE_PROJECT_ID 提供 */
     cozeProjectId: string;
     timeoutMs: number;
     onFailure: LlmFailureStrategy;
@@ -142,17 +145,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('MESSAGE_ENCRYPTION_KEY must decode to 32 bytes (AES-256)');
   }
 
-  // 占位值同样"非空"，能骗过上面的存在性校验，必须在生产态显式拒绝
-  if (isProd) {
-    const placeholder = /(please-generate|replace_with|change[_-]?me|changeme)/i;
-    if (placeholder.test(jwtSecret) || placeholder.test(messageEncryptionKeyB64)) {
-      throw new Error(
-        'JWT_SECRET / MESSAGE_ENCRYPTION_KEY 仍是 .env.example 的占位值；生产环境必须替换为真随机值' +
-        '（openssl rand -base64 48 / openssl rand -base64 32）',
-      );
-    }
-  }
-
   const providerRaw = (env.LLM_PROVIDER || 'off').toLowerCase();
   // 'coze' 走扣子智能体，'ollama' 走本地，'off' 关闭；其它取值（含未设置以外的未知值）
   // 一律落到 OpenAI 兼容分支，保持历史行为不变。
@@ -163,11 +155,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     : 'openai';
   // 归一化总开关默认开启；provider 为 off 时自动降级为确定性本地规则归一化。
   const llmEnabled = parseBoolean(env.LLM_NORMALIZE_ENABLED, true);
-
-  // provider=coze 必须显式给出项目 ID：以前是源码里硬编码常量，既泄漏真实 ID 又无法多环境复用。
-  if (provider === 'coze' && !(env.LLM_COZE_PROJECT_ID || '').trim()) {
-    throw new Error('LLM_PROVIDER=coze 需要设置 LLM_COZE_PROJECT_ID（扣子编程项目 ID，纯数字）');
-  }
 
   const driverOverride = (env.DB_DRIVER || '').toLowerCase();
   // 生产无 DATABASE_URL 时不再抛错：降级 PGlite（单节点兜底，服务必须能起），
@@ -195,10 +182,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     vaultAutoUnsealShares: parseList(env.VAULT_AUTO_UNSEAL_SHARES),
     vaultAutoBootstrap: parseBoolean(env.VAULT_AUTO_BOOTSTRAP, false),
     adminUsernames: parseList(env.ADMIN_USERNAMES).map((u) => u.toLowerCase()),
-    bootstrapInviteCodes:
-      parseList(env.BOOTSTRAP_INVITE_CODES).length > 0
-        ? parseList(env.BOOTSTRAP_INVITE_CODES)
-        : [], // 不提供内置默认邀请码：默认码会随仓库公开而失效，必须由部署方自己设置
+    bootstrapInviteCodes: parseList(env.BOOTSTRAP_INVITE_CODES),
     rateLimitPerMinute: parseNumber(env.RATE_LIMIT_PER_MINUTE, 12),
     maxMessageLength: parseNumber(env.MAX_MESSAGE_LENGTH, 1000),
     llm: {
@@ -209,9 +193,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       openaiModel: env.LLM_OPENAI_MODEL || 'gpt-4o-mini',
       ollamaBaseUrl: env.LLM_OLLAMA_BASE_URL || 'http://ollama:11434',
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
-      cozeApiUrl: (env.LLM_COZE_API_URL || '').replace(/\/$/, ''),
+      cozeApiUrl: (env.LLM_COZE_API_URL || DEFAULT_COZE_API_URL).replace(/\/$/, ''),
       cozeApiToken: env.LLM_COZE_API_TOKEN || '',
-      cozeProjectId: (env.LLM_COZE_PROJECT_ID || '').trim(),
+      cozeProjectId: env.LLM_COZE_PROJECT_ID || '',
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: (env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough'),
     },
@@ -256,10 +240,7 @@ export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig 
     vaultAutoUnsealShares: parseList(env.VAULT_AUTO_UNSEAL_SHARES),
     vaultAutoBootstrap: parseBoolean(env.VAULT_AUTO_BOOTSTRAP, false),
     adminUsernames: parseList(env.ADMIN_USERNAMES).map((u) => u.toLowerCase()),
-    bootstrapInviteCodes:
-      parseList(env.BOOTSTRAP_INVITE_CODES).length > 0
-        ? parseList(env.BOOTSTRAP_INVITE_CODES)
-        : [], // 不提供内置默认邀请码：默认码会随仓库公开而失效，必须由部署方自己设置
+    bootstrapInviteCodes: parseList(env.BOOTSTRAP_INVITE_CODES),
     rateLimitPerMinute: parseNumber(env.RATE_LIMIT_PER_MINUTE, 12),
     maxMessageLength: parseNumber(env.MAX_MESSAGE_LENGTH, 1000),
     llm: {
@@ -270,9 +251,9 @@ export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig 
       openaiModel: env.LLM_OPENAI_MODEL || 'gpt-4o-mini',
       ollamaBaseUrl: env.LLM_OLLAMA_BASE_URL || 'http://ollama:11434',
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
-      cozeApiUrl: (env.LLM_COZE_API_URL || '').replace(/\/$/, ''),
+      cozeApiUrl: (env.LLM_COZE_API_URL || DEFAULT_COZE_API_URL).replace(/\/$/, ''),
       cozeApiToken: env.LLM_COZE_API_TOKEN || '',
-      cozeProjectId: (env.LLM_COZE_PROJECT_ID || '').trim(),
+      cozeProjectId: env.LLM_COZE_PROJECT_ID || '',
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough',
     },

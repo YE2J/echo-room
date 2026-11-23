@@ -1,37 +1,50 @@
-# 安全策略
+# Security Policy
 
-## 报告漏洞
+## Supported Versions
 
-**请不要在公开 Issue 中提交安全问题**（尤其是匿名性/可追溯性相关的绕过手法）。
-请通过仓库所有者公开的联系方式私下报告，或在 GitHub 上使用「Report a vulnerability」
-（Security → Advisories）私密提交。
+| Version | Supported          |
+| ------- | ------------------ |
+| 0.5.x   | :white_check_mark: |
+| < 0.5   | :x:                |
 
-我们会在收到报告后尽快确认，并在修复发布后致谢（如你希望署名）。
+## Reporting a Vulnerability
 
-## 本项目承诺的安全边界
+本项目的匿名性承诺使其对安全缺陷高度敏感：任何可能破坏「身份不可溯源」、
+「消息密文只读」或「Shamir 门限控制」的漏洞都应**私下**报告，**不要创建公开
+issue**。
 
-| 承诺 | 实现依据 | 说明 |
-| --- | --- | --- |
-| 访问侧永不出现真实身份 | `server/services/privacy.ts`、`server/services/messages.ts` | 昵称/身份只以匿名 alias 与不可逆短引用（`ref`）出现 |
-| 原文不落明文 | `server/crypto/aesgcm.ts`、`server/services/messages.ts` | 消息原文 AES-256-GCM 密文入库，接口只返回归一化文本 |
-| 平时无法溯源 | `server/services/vault.ts` | `user ↔ alias` 映射整表加密；主密钥 Shamir K/N 分割，运行态默认封存 |
-| 追责留痕且不可单人完成 | `server/routes/trace.ts`、`server/routes/admin.ts` | 需 ≥K 份分片现场重组 + 事由 + 审计 |
-| 密钥不外泄到接口 | `server/services/llm-config.ts` | LLM API Key 以主密钥派生密钥加密入库，对外只返回掩码 |
+请将漏洞详情发送至维护团队的安全邮箱（见项目主页维护者联系方式），并包含：
 
-## 部署方必须自己做的（默认值不安全）
+- 受影响的版本
+- 复现步骤（如涉及多角色/多实例，请描述完整链路）
+- 对匿名性/机密性影响的评估
 
-| 项 | 要求 |
-| --- | --- |
-| `JWT_SECRET` / `MESSAGE_ENCRYPTION_KEY` | 必须用 `openssl rand` 重新生成；`.env.example` 的占位值会被生产态识别并拒绝加载配置。注意：因平台要求端口必须监听，服务会**降级**用临时随机密钥启动（`/api/health` 显示 `secretSource:"ephemeral"`、日志 `FATAL-DEGRADED`），重启后旧密文即永久不可解——**上线后第一件事就是确认该字段为 `env`** |
-| `ADMIN_USERNAMES` | 换成你自己的管理员用户名；示例里的 `admin` 不要带到生产 |
-| `BOOTSTRAP_INVITE_CODES` | 上线后立即在管理后台轮换并从此项清空 |
-| `VAULT_AUTO_BOOTSTRAP` / `VAULT_AUTO_UNSEAL_SHARES` | 保持 `false`/留空：第一次引导时分片只打印一次，请离线分发给不同持有人 |
-| TLS | 必须置于反向代理之后启用 HTTPS/WSS（见 `docs/DEPLOYMENT.md`） |
-| `/api/health` 自检 | 上线后确认 `secretSource=env`，且 `vault` 不是 `uninitialized` |
-| `HEALTH_DIAG_TOKEN` | 生产默认关闭 `/api/health/diag`；确实需要排障时再临时设置该 token |
+收到报告后我们承诺：
 
-## 已知设计取舍（非漏洞）
+- 72 小时内确认收到并给出初步评估
+- 根据严重性在 7–30 天内修复或给出缓解方案
+- 修复发布前不会公开漏洞细节
 
-- 归一化改写依赖外部 LLM 时，原文会发送给该 provider；如需完全不外发，请用自托管 Ollama。
-- `passthrough` 失败策略在模型不可用时会**放行原文**（保证可用性）；对匿名强度有硬要求请设 `LLM_ON_FAILURE=reject`。
-- 单实例 + PGlite 仅用于评估，生产请用 PostgreSQL + Redis。
+## 匿名性依赖声明（重要）
+
+1. **Shamir 分片保管是匿名性的基石**。本项目的可溯源能力依赖部署方正确、
+   分散地保管 `VAULT_K / VAULT_N` 分片（`VAULT_K` 禁止为 1，生产**强烈建议** >= 2）。
+   分片泄漏或落入单一保管人手中会直接削弱匿名性保证。
+
+2. **请勿在测试/演示环境使用真实员工数据**。开发模式默认使用本地 PGlite 与
+   内存总线，其加密与门限保护级别低于生产部署；任何试点都应使用合成数据。
+
+3. **`VAULT_AUTO_BOOTSTRAP=true` 会削弱匿名性保证**：该模式下服务启动即自动
+   生成分片并解封、将分片加密落库备份，相当于把「追溯权限」交给了部署平台 /
+   单点进程。生产环境应保持默认 `false`，由 >=K 名分片持有人通过 break-glass
+   接口人工解封；确需开启时请评估并接受该风险。
+
+4. 数据库与对象存储中的身份映射、消息密文均以 AES-256-GCM 加密，
+   但任何密钥泄漏（`MESSAGE_ENCRYPTION_KEY`、`JWT_SECRET`、vault 分片）都会
+   恢复可读性 —— 请按生产密钥标准（>=32 字节随机、独立保管）保管。
+
+## 已知缓解
+
+- 真实身份与匿名昵称的映射只存于加密保险库（Identity Vault），平时封存
+- 审计日志 actor 一律 `null` 或 `admin#N`，meta 剔除身份键
+- 管理后台对消息、溯源结果做粗化 + 门限揭示，避免「编辑内容 ↔ 真人」关联

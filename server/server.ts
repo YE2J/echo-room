@@ -49,13 +49,13 @@ function isSet(value: string | undefined): boolean {
   return value !== undefined && value !== '';
 }
 
-/** 启动诊断横幅：打印全部环境变量 key 名（不打印值），重点键只标 [set]/[unset] */
+/** 启动诊断横幅：只打印环境变量数量与关注项 [set]/[unset]，不逐条列出全部变量名 */
 function printEnvDiagnostics(app: FastifyInstance): void {
   try {
-    // 只打印数量与关注项，不逐条列出全部变量名：日志常被平台收集/转发，
-    // 变量名本身就能泄漏部署方用了哪些服务与密钥（KEY/TOKEN 结尾的名字）。
+    // 日志常被平台收集/转发，变量名本身就能泄漏部署方用了哪些服务与密钥（*_API_KEY / *_TOKEN 结尾的名字），
+    // 因此只打数量与关注项摘要，不再逐条输出。
     const all = Object.keys(process.env);
-    app.log.info(`env keys: ${all.length} total (names withheld; see env focus below)`);
+    app.log.info(`env keys: ${all.length} total (names withheld, see env focus below)`);
     const focus = FOCUS_KEYS.map((k) => `${k}=${isSet(process.env[k]) ? '[set]' : '[unset]'}`);
     app.log.info(`env focus: ${focus.join('  ')}`);
   } catch (err) {
@@ -85,8 +85,8 @@ async function main(): Promise<void> {
     // 临时随机密钥意味着重启后此前写入的消息密文/会话永久不可解。
     console.error(
       `[config] FATAL-DEGRADED: ${(err as Error).message}\n` +
-      '[config] 已降级为临时随机密钥启动（secretSource=ephemeral）。' +
-      '此前写入的消息密文与会话在本进程重启后将永久不可解密，请立即修复配置并重建数据。',
+        '[config] 已降级为临时随机密钥启动（secretSource=ephemeral）。' +
+        '此前写入的消息密文与会话在本进程重启后将永久不可解密，请立即修复配置并重建数据。',
     );
     config = fallbackConfig(process.env);
   }
@@ -101,6 +101,22 @@ async function main(): Promise<void> {
 
   installCrashGuards(app);
   printEnvDiagnostics(app);
+
+  // 启动校验：LLM_PROVIDER=coze 但缺少必填项 → 生产明确报错退出，禁止静默降级；
+  // 开发环境仅打印提示（走本地归一化兜底，避免破坏本地调试）。
+  const cozeMissing = !config.llm.cozeApiUrl || !config.llm.cozeProjectId;
+  if (config.llm.provider === 'coze' && config.isProd && cozeMissing) {
+    app.log.error(
+      `[config] LLM_PROVIDER=coze 但 ${!config.llm.cozeApiUrl ? 'LLM_COZE_API_URL' : 'LLM_COZE_PROJECT_ID'} 为空：请在部署平台配置扣子智能体域名与项目 ID 并重启`,
+    );
+    process.exit(1);
+  }
+  if (config.llm.provider === 'coze' && !config.isProd && cozeMissing) {
+    app.log.warn('[config] LLM_PROVIDER=coze 但缺少 LLM_COZE_API_URL / LLM_COZE_PROJECT_ID，改写将走本地归一化兜底');
+  }
+  if (config.bootstrapInviteCodes.length === 0) {
+    app.log.warn('[config] 未配置 BOOTSTRAP_INVITE_CODES：未注入引导邀请码，请通过管理后台或 vault-cli invite 签发');
+  }
 
   const health: HealthState = {
     env: isProd ? 'production' : 'development',

@@ -99,6 +99,18 @@ node_modules/
 # Production build
 dist/
 dist-server/
+# 运行时数据（PGlite / 密钥 / 分片 / 审计日志）
+.data/
+logs/
+
+# 敏感/本机专用（公开仓库前剥离）
+.env*
+!.env.example
+.runtime/
+.tmp_tasks/
+_scan/
+assets/coze_provider_task.md
+dist-server/
 build/
 out/
 # Testing
@@ -150,3 +162,6 @@ dist-server/
 logs/
 *.log
 .env.local
+
+# 发布归档（不计入 git）
+echo-room-source.tar.gz

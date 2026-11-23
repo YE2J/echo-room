@@ -34,13 +34,6 @@ export interface LlmTestResult {
 /** 连通性测试的固定样例：无个人风格、不涉及真实用户内容。 */
 export const LLM_TEST_SAMPLE = '这个提议挺不错的，我觉得可以试试看！！！';
 
-/**
- * 扣子编程项目 ID 的格式校验：19 位整数超出 Number.MAX_SAFE_INTEGER，
- * 因此以字符串保存、在请求体里用占位符替换成无引号的数字字面量。
- * 真实 ID 由部署方通过 LLM_COZE_PROJECT_ID 提供，源码里不留任何具体 ID。
- */
-const COZE_PROJECT_ID_PATTERN = /^\d{15,20}$/;
-
 const SYSTEM_PROMPT = [
   '你是一个中文匿名通讯系统的文本风格归一化器。任务是改写用户消息以抹除可识别个人身份的写作风格，但完整保留事实、观点与诉求。',
   '规则：',
@@ -273,9 +266,13 @@ export class Rewriter {
     if (!llm.apiKey) {
       throw new Error('coze API Token is not configured');
     }
-    const projectId = (this.config.llm.cozeProjectId || '').trim();
-    if (!COZE_PROJECT_ID_PATTERN.test(projectId)) {
-      throw new Error('LLM_COZE_PROJECT_ID 未配置或格式非法（应为 15-20 位纯数字的扣子编程项目 ID）');
+    // 扣子编程项目 ID（15-20 位纯数字，19 位时超出 Number.MAX_SAFE_INTEGER）：从环境变量读取，
+    // 以占位符替换的方式序列化，保证数字精度（project_id 不以引号字符串发送）
+    const projectId = this.config.llm.cozeProjectId;
+    if (!/^\d{15,20}$/.test(projectId)) {
+      throw new Error(
+        'LLM_COZE_PROJECT_ID 未配置或格式非法（应为 15-20 位纯数字的扣子编程项目 ID）',
+      );
     }
     const base = (llm.baseUrl ?? '').replace(/\/$/, '');
     const headers = {

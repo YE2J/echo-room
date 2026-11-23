@@ -1,6 +1,6 @@
 # AGENTS.md — 匿名回音 Echo Room
 
-开源匿名聊天室（企业内部意见收集与问题举报）MVP。登录准入 → 签发匿名昵称 → WebSocket 公共聊天室 → 消息经 LLM 语气归一化 → AES-256-GCM 密文落库 → 身份映射整表加密 + Shamir(K/N) 密钥分割。
+开源匿名聊天室（企业内部意见收集与问题举报）MVP。登录准入 → 签发匿名昵称 → 多房间 WebSocket 匿名聊天室 → 消息经 LLM 语气归一化 → AES-256-GCM 密文落库 → 身份映射整表加密 + Shamir(K/N) 密钥分割。
 
 ## 技术栈
 
@@ -72,7 +72,7 @@
 - `VAULT_K` / `VAULT_N`：Shamir 门限（默认 2/3）；`VAULT_AUTO_UNSEAL_SHARES` 仅供开发/单管理员环境
 - `LLM_NORMALIZE_ENABLED`、`LLM_PROVIDER`（`openai`|`ollama`|`off`）、`LLM_*` 连接参数、`LLM_ON_FAILURE`（`passthrough`|`reject`）
 - `ADMIN_USERNAMES`：管理员用户名逗号分隔（可 unseal/签发邀请码）
-- `BOOTSTRAP_INVITE_CODES`：启动时自动注入的邀请码（**无内置默认值**，由部署方通过环境变量提供）
+- `BOOTSTRAP_INVITE_CODES`：启动时自动注入的邀请码（默认空，未配置时启动打印提示由管理后台签发）
 
 ## 代码规范
 
