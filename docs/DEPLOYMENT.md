@@ -52,7 +52,7 @@ curl -s http://localhost:5000/api/health
 在应用容器上执行 CLI（此时数据库迁移会自动执行）：
 
 ```bash
-docker compose run --rm app node dist-server/vault-cli.js init 2 3
+docker compose run --rm app node dist-server/scripts/vault-cli.js init 2 3
 ```
 
 输出形如：
@@ -134,7 +134,7 @@ M1 简化处理：更换门限/保管人需要重新初始化保险库。操作�
 
 ```bash
 # CLI 直接签发（MAX_USES=0 表示不限次数）
-docker compose run --rm app node dist-server/vault-cli.js invite TEAM-Q3 50
+docker compose run --rm app node dist-server/scripts/vault-cli.js invite TEAM-Q3 50
 
 # 或管理员登录后调用 API / 在后台界面签发
 curl -X POST https://域名/api/admin/invites -b cookies.txt \
@@ -218,7 +218,7 @@ docker compose up -d app    # 迁移启动时自动执行（CREATE TABLE IF NOT 
 | 现象 | 排查 |
 |---|---|
 | 登录后提示保险库封存 | 用 break-glass 或后台提交 K 个分片解封 |
-| 注册提示邀请码无效 | 检查 `BOOTSTRAP_INVITE_CODES`；`docker compose run --rm app node dist-server/vault-cli.js status` |
+| 注册提示邀请码无效 | 检查 `BOOTSTRAP_INVITE_CODES`；`docker compose run --rm app node dist-server/scripts/vault-cli.js status` |
 | 消息发不出 | 查看接口返回；`LLM_ON_FAILURE=reject` 时模型故障会拒绝，可临时改 `passthrough` |
 | WS 连不上 | 确认反代透传 `Upgrade/Connection`；同一端口 `/ws/chat` |
 | 启动报密钥错误 | `MESSAGE_ENCRYPTION_KEY` 必须是 32 字节的 base64；`JWT_SECRET` 生产必填 |

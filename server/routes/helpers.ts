@@ -4,6 +4,7 @@ import { verifyToken } from '../crypto/token';
 import { getUserById } from '../services/auth';
 import { VaultSealedError } from '../services/vault';
 import type { AppContext, AuthenticatedUser } from '../context';
+import { getRoomById, resolveAccess, type RoomAccess, type RoomRow } from '../services/rooms';
 
 function extractToken(request: FastifyRequest): string | null {
   const cookieHeader = request.headers.cookie;
@@ -74,4 +75,38 @@ export async function requireAdmin(
     return null;
   }
   return user;
+}
+
+/**
+ * 房间访问权校验（M3）：按 管理员 → 房主 → 成员 → 公开房 → 403 的次序判定。
+ * 返回 { user, room, access }；无权/房间不存在时已写好 reply 并返回 null。
+ * minAccess 用于声明调用方要求的最低等级（如改名需要 owner 级）。
+ */
+export async function requireRoomAccess(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  ctx: AppContext,
+  roomId: string,
+  minAccess: 'admin' | 'owner' | 'member' | 'public',
+): Promise<{ user: AuthenticatedUser; room: RoomRow; access: RoomAccess } | null> {
+  const user = await requireUser(request, reply, ctx);
+  if (!user) return null;
+  const room = await getRoomById(ctx.db, roomId);
+  if (!room) {
+    await reply.code(404).send({ error: '房间不存在' });
+    return null;
+  }
+  const access = await resolveAccess(ctx.db, room, user);
+  if (access === 'none') {
+    await reply.code(403).send({ error: '无权访问该房间' });
+    return null;
+  }
+  const hierarchy: RoomAccess[] = ['admin', 'owner', 'member', 'public'];
+  const currentRank = hierarchy.indexOf(access);
+  const requiredRank = hierarchy.indexOf(minAccess);
+  if (currentRank === -1 || currentRank > requiredRank) {
+    await reply.code(403).send({ error: '权限不足' });
+    return null;
+  }
+  return { user, room, access };
 }

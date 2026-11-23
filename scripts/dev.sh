@@ -1,9 +1,16 @@
 #!/bin/bash
 set -Eeuo pipefail
 
+# Resolve the source project from this script, then let the Web runner choose its local mirror.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+if [[ "${COZE_WEB_LOCAL_ACTIVE:-}" != "${PROJECT_ROOT}" ]]; then
+  exec node "${SCRIPT_DIR}/local-workspace.cjs" dev "$@"
+fi
+COZE_WORKSPACE_PATH="${PROJECT_ROOT}"
+
 
 PORT=5000
-COZE_WORKSPACE_PATH="${COZE_WORKSPACE_PATH:-$(pwd)}"
 DEPLOY_RUN_PORT="${DEPLOY_RUN_PORT:-${PORT}}"
 
 
@@ -124,7 +131,7 @@ mkdir -p "${LOG_DIR}"
 
 export PORT="${DEPLOY_RUN_PORT}"
 server_pid="$(spawn_detached "${COZE_WORKSPACE_PATH}" "${LOG_FILE}" \
-  "$(command -v pnpm)" tsx watch server/server.ts)"
+  "$(command -v node)" "${SCRIPT_DIR}/local-workspace.cjs" watch "$(command -v pnpm)" tsx watch server/server.ts)"
 echo "${server_pid}" > "${PID_FILE}"
 
 sleep 1

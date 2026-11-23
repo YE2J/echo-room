@@ -29,6 +29,8 @@ export interface StoreMessageInput {
   normalizedText: string;
   rewritten: boolean;
   encryptionKey: Buffer;
+  /** M3：所属房间（hist 回填后恒非空；保留可选便于迁移阶容错） */
+  roomId: string;
 }
 
 export async function storeMessage(db: DatabaseClient, input: StoreMessageInput): Promise<StoredMessage> {
@@ -36,8 +38,8 @@ export async function storeMessage(db: DatabaseClient, input: StoreMessageInput)
   const now = Date.now();
   const rows = await db.query<{ id: string }>(
     `INSERT INTO messages
-       (alias_id, alias_name, normalized_text, ciphertext, cipher_alg, rewritten, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+       (alias_id, alias_name, normalized_text, ciphertext, cipher_alg, rewritten, created_at, room_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id`,
     [
       input.aliasId,
@@ -47,6 +49,7 @@ export async function storeMessage(db: DatabaseClient, input: StoreMessageInput)
       encrypted.alg,
       input.rewritten,
       now,
+      input.roomId,
     ],
   );
   return {
@@ -57,23 +60,24 @@ export async function storeMessage(db: DatabaseClient, input: StoreMessageInput)
   };
 }
 
-/** 最近历史（游标分页）；仅返回可公开的匿名昵称 + 归一化文本。 */
+/** 最近历史（游标分页 + 房间过滤）；仅返回可公开的匿名昵称 + 归一化文本。 */
 export async function listRecentMessages(
   db: DatabaseClient,
-  options: { before?: number; limit: number },
+  options: { roomId: string; before?: number; limit: number },
 ): Promise<PublicMessage[]> {
   const limit = Math.min(Math.max(options.limit, 1), 100);
   const rows = options.before
     ? await db.query<StoredMessage & Record<string, unknown>>(
         `SELECT id, alias_name AS "aliasName", normalized_text AS "normalizedText", created_at AS "createdAt"
-         FROM messages WHERE created_at < $1
-         ORDER BY created_at DESC LIMIT $2`,
-        [options.before, limit],
+         FROM messages WHERE room_id = $1 AND created_at < $2
+         ORDER BY created_at DESC LIMIT $3`,
+        [options.roomId, options.before, limit],
       )
     : await db.query<StoredMessage & Record<string, unknown>>(
         `SELECT id, alias_name AS "aliasName", normalized_text AS "normalizedText", created_at AS "createdAt"
-         FROM messages ORDER BY created_at DESC LIMIT $1`,
-        [limit],
+         FROM messages WHERE room_id = $1
+         ORDER BY created_at DESC LIMIT $2`,
+        [options.roomId, limit],
       );
   // 列表按时间正序返回给前端，并派生公开头像视觉
   return rows.rows.reverse().map((row) => toPublicMessage(row as StoredMessage));

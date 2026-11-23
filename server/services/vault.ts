@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import type { DatabaseClient } from '../db';
 import type { AppConfig } from '../config';
 import { combineShares, decodeShare, encodeShare, splitSecret, type Share } from '../crypto/shamir';
-import { decryptJson, deriveSubKey, encryptJson } from '../crypto/aesgcm';
+import { decryptJson, decryptText, deriveSubKey, encryptJson, encryptText } from '../crypto/aesgcm';
 
 export type VaultState = 'uninitialized' | 'sealed' | 'unsealed';
 
@@ -104,6 +104,42 @@ export class IdentityVault {
     // 主密钥只在本次进程短暂存在，CLI 退出后即消失；分片打印给 K..N 位保管人
     this.masterKey = masterKey;
     return { shares: shares.map(encodeShare), vaultId: meta.vaultId };
+  }
+
+  /** 将分片加密后落库备份（密钥由 messageEncryptionKey 派生，仅用于自动恢复解封，非保管用途）。 */
+  async persistEncryptedShares(vaultId: string, shares: string[]): Promise<void> {
+    const key = deriveSubKey(this.config.messageEncryptionKey, 'vault-shares-backup-v1');
+    for (let i = 0; i < shares.length; i++) {
+      const shareEnc = JSON.stringify(encryptText(shares[i], key));
+      await this.db.query(
+        `INSERT INTO vault_shares (vault_id, idx, share_enc, created_at) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (vault_id, idx) DO UPDATE SET share_enc = EXCLUDED.share_enc, created_at = EXCLUDED.created_at`,
+        [vaultId, i, shareEnc, Date.now()],
+      );
+    }
+  }
+
+  /** 从加密备份恢复解封（仅当 meta 存在且库内有 ≥K 份可解密的 share）。成功返回 true。 */
+  async restoreFromBackup(): Promise<boolean> {
+    const meta = await this.getMeta();
+    if (!meta) return false;
+    const rows = await this.db.query<{ share_enc: string }>(
+      'SELECT share_enc FROM vault_shares WHERE vault_id = $1 ORDER BY idx ASC LIMIT $2',
+      [meta.vaultId, meta.k],
+    );
+    if (rows.rows.length < meta.k) return false;
+    const key = deriveSubKey(this.config.messageEncryptionKey, 'vault-shares-backup-v1');
+    const shares: string[] = [];
+    for (const row of rows.rows) {
+      try {
+        const payload = JSON.parse(row.share_enc) as { data: string; alg: 'AES-256-GCM' };
+        shares.push(decryptText(payload, key));
+      } catch {
+        return false;
+      }
+    }
+    await this.unseal(shares);
+    return this.isUnsealed();
   }
 
   /** 用 ≥K 份分片解封；分片数量不足或校验失败抛错。 */

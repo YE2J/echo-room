@@ -1,6 +1,7 @@
 // ABOUTME: 应用启动入口：会话探测与 认证页/聊天室 视图切换。
 
 import './index.css';
+import './styles.css';
 import { api, type AliasVisual, type AuthResult } from './api';
 import { renderAuthPage } from './pages/auth';
 import { renderChatPage } from './pages/chat';

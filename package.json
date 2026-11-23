@@ -1,11 +1,10 @@
 {
-  "name": "projects",
-  "version": "1.0.0",
-  "description": "Vanilla TypeScript application with Express + Vite (HTML + CSS + TS + Node API)",
+  "name": "echo-room",
+  "version": "0.5.0",
+  "description": "匿名回音 Echo Room — 企业内部匿名意见收集/举报聊天室（Fastify+TS / Vite+TS / PostgreSQL / Redis / WebSocket / Shamir 门限溯源）",
   "scripts": {
     "build": "bash ./scripts/build.sh",
     "dev": "bash ./scripts/dev.sh",
-    "preinstall": "npx only-allow pnpm",
     "lint": "eslint",
     "lint:build": "eslint . --quiet",
     "lint:style": "stylelint \"src/**/*.css\"",
@@ -18,10 +17,16 @@
     "@fastify/cookie": "^11.1.3",
     "@fastify/middie": "^9.3.5",
     "@fastify/static": "^10.1.6",
-    "dotenv": "^17.2.3",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^17.2.4",
+    "esbuild": "^0.27.2",
     "fastify": "^5.12.5",
     "ioredis": "^6.0.0",
     "pg": "^8.23.1",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "tsup": "^8.3.5",
+    "vite": "^7.2.4",
     "ws": "^8.22.0",
     "zod": "^4.6.6"
   },
@@ -29,30 +34,28 @@
     "@types/node": "^22.10.5",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
-    "autoprefixer": "^10.4.20",
     "coze-coding-dev-sdk": "^0.7.32",
-    "esbuild": "^0.24.2",
     "eslint": "^9",
     "eslint-plugin-import": "^2.32.0",
-    "only-allow": "^1.2.2",
-    "postcss": "^8.4.49",
     "stylelint": "^16.4.0",
     "stylelint-config-standard": "^38.0.0",
-    "tailwindcss": "^3.4.17",
-    "tsup": "^8.3.5",
     "tsx": "^4.19.2",
     "typescript": "^5.6.0",
-    "typescript-eslint": "^8",
-    "vite": "^7.2.4"
+    "typescript-eslint": "^8"
   },
   "packageManager": "pnpm@9.0.0",
   "engines": {
     "pnpm": ">=9.0.0"
   },
   "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@parcel/watcher"
+    ],
     "overrides": {
       "esbuild": "^0.27.2",
       "is-generator-function": "1.0.10"
     }
-  }
+  },
+  "license": "MIT"
 }

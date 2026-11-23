@@ -1,4 +1,5 @@
 // ABOUTME: WebSocket 客户端：首帧 token 鉴权、自动重连、心跳、消息类型分发。
+// 多房间支持：join/leave 帧；chat:message 携带 roomId，由上层按当前房间过滤。
 
 import type { ChatMessage } from './api';
 
@@ -6,17 +7,39 @@ export type WsChatMessage = ChatMessage;
 
 export type ConnectionState = 'connecting' | 'online' | 'offline';
 
+export interface RoomJoinedInfo {
+  roomId: string;
+  name: string;
+  online: number;
+}
+
+export interface RoomLeftInfo {
+  roomId: string;
+  name: string;
+  previousRoomId: string | null;
+  online: number;
+}
+
 interface WsClientOptions {
   path: string;
   getToken: () => string | null;
   onStateChange: (state: ConnectionState) => void;
   onChatMessage?: (message: WsChatMessage) => void;
   onErrorMessage?: (message: string, code?: string) => void;
-  onReady?: (info: { rewriteEnabled: boolean }) => void;
+  /** auth:ok：携带默认房间（大厅）roomId */
+  onReady?: (info: { rewriteEnabled: boolean; roomId?: string }) => void;
+  /** presence 现在带 roomId：只有当前房间的在线数才应展示 */
+  onPresence?: (online: number, roomId?: string) => void;
+  onRoomJoined?: (info: RoomJoinedInfo) => void;
+  onRoomLeft?: (info: RoomLeftInfo) => void;
 }
 
 export interface WsClient {
   send: (type: string, payload: unknown) => void;
+  /** 加入 / 切换到指定房间（后端会先校验可见性） */
+  join: (roomId: string) => void;
+  /** 离开当前房间（后端自动回到大厅） */
+  leave: () => void;
   close: () => void;
 }
 
@@ -66,15 +89,50 @@ export function createWsClient(options: WsClientOptions): WsClient {
           return;
         case 'auth:ok': {
           options.onStateChange('online');
-          const payload = envelope.payload as { rewriteEnabled?: boolean };
-          options.onReady?.({ rewriteEnabled: Boolean(payload.rewriteEnabled) });
+          const payload = envelope.payload as { rewriteEnabled?: boolean; roomId?: string };
+          options.onReady?.({
+            rewriteEnabled: Boolean(payload.rewriteEnabled),
+            roomId: typeof payload.roomId === 'string' ? payload.roomId : undefined,
+          });
           return;
         }
         case 'chat:message':
           options.onChatMessage?.(envelope.payload as WsChatMessage);
           return;
-        case 'presence':
+        case 'room:joined': {
+          const p = envelope.payload as { roomId?: string; name?: string; online?: number };
+          if (typeof p.roomId !== 'string') return;
+          options.onRoomJoined?.({
+            roomId: p.roomId,
+            name: typeof p.name === 'string' ? p.name : '',
+            online: typeof p.online === 'number' ? p.online : 0,
+          });
           return;
+        }
+        case 'room:left': {
+          const p = envelope.payload as {
+            roomId?: string;
+            name?: string;
+            previousRoomId?: string | null;
+            online?: number;
+          };
+          if (typeof p.roomId !== 'string') return;
+          options.onRoomLeft?.({
+            roomId: p.roomId,
+            name: typeof p.name === 'string' ? p.name : '大厅',
+            previousRoomId: typeof p.previousRoomId === 'string' ? p.previousRoomId : null,
+            online: typeof p.online === 'number' ? p.online : 0,
+          });
+          return;
+        }
+        case 'presence': {
+          const p = envelope.payload as { online?: number; roomId?: string };
+          options.onPresence?.(
+            typeof p.online === 'number' ? p.online : 0,
+            typeof p.roomId === 'string' ? p.roomId : undefined,
+          );
+          return;
+        }
         case 'error': {
           const p = envelope.payload as { message?: string; code?: string };
           options.onErrorMessage?.(p?.message ?? '未知错误', p?.code);
@@ -115,6 +173,13 @@ export function createWsClient(options: WsClientOptions): WsClient {
       if (socket && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type, payload }));
       }
+    },
+    join(roomId: string) {
+      if (!roomId) return;
+      this.send('room:join', { roomId });
+    },
+    leave() {
+      this.send('room:leave', null);
     },
     close() {
       closedByUser = true;

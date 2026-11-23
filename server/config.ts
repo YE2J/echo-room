@@ -1,5 +1,6 @@
 // ABOUTME: 集中解析运行时环境变量，提供类型安全的配置对象
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
@@ -34,22 +35,65 @@ function loadOrCreateDevSecrets(filePath: string): Record<string, string> {
   }
 }
 
-export type LlmProvider = 'openai' | 'ollama' | 'off';
+export interface DataDirResult {
+  /** 可用的数据目录；为 null 表示无任何可写目录，须降级内存模式 */
+  dir: string | null;
+  /** 命中的候选来源或失败原因（用于启动诊断） */
+  source: string;
+}
+
+/**
+ * 按优先级探测可写数据目录：DATA_DIR → COZE_WORKSPACE_PATH/.data → cwd/.data → os.tmpdir()/echo-room-data。
+ * 每个候选都会 mkdir -p 并写入/删除探针文件验证可写；全部失败返回 dir=null，调用方降级 PGlite 内存模式。
+ */
+export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): DataDirResult {
+  const candidates: Array<{ label: string; dir: string | null }> = [
+    { label: 'DATA_DIR', dir: env.DATA_DIR || null },
+    {
+      label: 'COZE_WORKSPACE_PATH/.data',
+      dir: env.COZE_WORKSPACE_PATH ? path.join(env.COZE_WORKSPACE_PATH, '.data') : null,
+    },
+    { label: 'cwd/.data', dir: path.resolve(process.cwd(), '.data') },
+    { label: 'os.tmpdir()/echo-room-data', dir: path.join(os.tmpdir(), 'echo-room-data') },
+  ];
+  for (const candidate of candidates) {
+    if (!candidate.dir) continue;
+    try {
+      fs.mkdirSync(candidate.dir, { recursive: true });
+      const probe = path.join(candidate.dir, `.probe-${process.pid}-${Date.now()}.tmp`);
+      fs.writeFileSync(probe, 'ok');
+      fs.rmSync(probe, { force: true });
+      return { dir: candidate.dir, source: candidate.label };
+    } catch {
+      // 当前候选不可写，尝试下一个
+    }
+  }
+  return { dir: null, source: 'none writable; fallback to in-memory PGlite' };
+}
+
+export type LlmProvider = 'openai' | 'ollama' | 'coze' | 'off';
 export type LlmFailureStrategy = 'passthrough' | 'reject';
 
 export interface AppConfig {
   isProd: boolean;
+  /** 密钥来源：env=来自环境变量；ephemeral=配置非法时降级的临时随机密钥（重启后旧密文不可解） */
+  secretSource: 'env' | 'ephemeral';
   port: number;
   dbDriver: 'pg' | 'pglite';
   databaseUrl?: string;
   redisUrl?: string;
-  dataDir: string;
+  /** 可写数据目录；null 表示无可用目录（PGlite 应降级内存模式） */
+  dataDir: string | null;
+  /** dataDir 的来源（诊断用） */
+  dataDirSource: string;
   jwtSecret: string;
   messageEncryptionKey: Buffer;
   tokenTtlSeconds: number;
   vaultK: number;
   vaultN: number;
   vaultAutoUnsealShares: string[];
+  /** 首次启动自动引导保险库：生成分片 + 解封 + 加密落库备份（生产单管理员自动运维） */
+  vaultAutoBootstrap: boolean;
   adminUsernames: string[];
   bootstrapInviteCodes: string[];
   rateLimitPerMinute: number;
@@ -62,6 +106,8 @@ export interface AppConfig {
     openaiModel: string;
     ollamaBaseUrl: string;
     ollamaModel: string;
+    cozeApiUrl: string;
+    cozeApiToken: string;
     timeoutMs: number;
     onFailure: LlmFailureStrategy;
   };
@@ -76,11 +122,12 @@ export interface AppConfig {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const isProd = env.COZE_PROJECT_ENV === 'PROD' || env.NODE_ENV === 'production';
-  const dataDir = env.DATA_DIR || path.resolve(process.cwd(), '.data');
+  const dataDirResult = resolveDataDir(env);
+  const dataDir = dataDirResult.dir;
 
   let jwtSecret = env.JWT_SECRET;
   let messageEncryptionKeyB64 = env.MESSAGE_ENCRYPTION_KEY;
-  if (!isProd) {
+  if (!isProd && dataDir) {
     const secrets = loadOrCreateDevSecrets(path.join(dataDir, 'dev-secrets.json'));
     jwtSecret = jwtSecret || secrets.JWT_SECRET;
     messageEncryptionKeyB64 = messageEncryptionKeyB64 || secrets.MESSAGE_ENCRYPTION_KEY;
@@ -93,32 +140,53 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('MESSAGE_ENCRYPTION_KEY must decode to 32 bytes (AES-256)');
   }
 
-  const provider = (env.LLM_PROVIDER || 'off').toLowerCase() as LlmProvider;
+  // 占位值同样"非空"，能骗过上面的存在性校验，必须在生产态显式拒绝
+  if (isProd) {
+    const placeholder = /(please-generate|replace_with|change[_-]?me|changeme)/i;
+    if (placeholder.test(jwtSecret) || placeholder.test(messageEncryptionKeyB64)) {
+      throw new Error(
+        'JWT_SECRET / MESSAGE_ENCRYPTION_KEY 仍是 .env.example 的占位值；生产环境必须替换为真随机值' +
+        '（openssl rand -base64 48 / openssl rand -base64 32）',
+      );
+    }
+  }
+
+  const providerRaw = (env.LLM_PROVIDER || 'off').toLowerCase();
+  // 'coze' 走扣子智能体，'ollama' 走本地，'off' 关闭；其它取值（含未设置以外的未知值）
+  // 一律落到 OpenAI 兼容分支，保持历史行为不变。
+  const provider: LlmProvider = (
+    ['openai', 'ollama', 'coze', 'off'] as const
+  ).includes(providerRaw as 'openai' | 'ollama' | 'coze' | 'off')
+    ? (providerRaw as LlmProvider)
+    : 'openai';
   // 归一化总开关默认开启；provider 为 off 时自动降级为确定性本地规则归一化。
   const llmEnabled = parseBoolean(env.LLM_NORMALIZE_ENABLED, true);
 
   const driverOverride = (env.DB_DRIVER || '').toLowerCase();
+  // 生产无 DATABASE_URL 时不再抛错：降级 PGlite（单节点兜底，服务必须能起），
+  // 由启动诊断横幅与 WARN 提示数据不会落到外部 PG。
   const dbDriver: 'pg' | 'pglite' = driverOverride === 'pglite'
     ? 'pglite'
     : env.DATABASE_URL
       ? 'pg'
-      : isProd
-        ? (() => { throw new Error('DATABASE_URL is required in production (or set DB_DRIVER=pglite for single-node evaluation)'); })()
-        : 'pglite';
+      : 'pglite';
 
   return {
     isProd,
+    secretSource: 'env',
     port: parseNumber(env.PORT ?? env.DEPLOY_RUN_PORT, 5000),
     dbDriver,
     databaseUrl: env.DATABASE_URL || undefined,
     redisUrl: env.REDIS_URL || undefined,
     dataDir,
+    dataDirSource: dataDirResult.source,
     jwtSecret,
     messageEncryptionKey,
     tokenTtlSeconds: parseNumber(env.TOKEN_TTL_SECONDS, 60 * 60 * 12),
     vaultK: parseNumber(env.VAULT_K, 2),
     vaultN: parseNumber(env.VAULT_N, 3),
     vaultAutoUnsealShares: parseList(env.VAULT_AUTO_UNSEAL_SHARES),
+    vaultAutoBootstrap: parseBoolean(env.VAULT_AUTO_BOOTSTRAP, false),
     adminUsernames: parseList(env.ADMIN_USERNAMES).map((u) => u.toLowerCase()),
     bootstrapInviteCodes:
       parseList(env.BOOTSTRAP_INVITE_CODES).length > 0
@@ -134,8 +202,70 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       openaiModel: env.LLM_OPENAI_MODEL || 'gpt-4o-mini',
       ollamaBaseUrl: env.LLM_OLLAMA_BASE_URL || 'http://ollama:11434',
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
+      cozeApiUrl: (env.LLM_COZE_API_URL || '').replace(/\/$/, ''),
+      cozeApiToken: env.LLM_COZE_API_TOKEN || '',
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: (env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough'),
+    },
+    oidc: {
+      enabled: parseBoolean(env.OIDC_ENABLED, false),
+      issuer: env.OIDC_ISSUER || undefined,
+      clientId: env.OIDC_CLIENT_ID || undefined,
+      clientSecret: env.OIDC_CLIENT_SECRET || undefined,
+      redirectUri: env.OIDC_REDIRECT_URI || undefined,
+    },
+  };
+}
+
+/**
+ * 极端兜底配置：loadConfig 抛错（如生产缺 JWT_SECRET / 密钥长度非法）时调用。
+ * 用随机密钥继续启动，保证 HTTP 服务无论如何都能监听、/api/health 可诊断。
+ * 调用方需 console.warn 记录原因（会话与密文在重启后失效，属可接受的降级）。
+ */
+export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const isProd = env.COZE_PROJECT_ENV === 'PROD' || env.NODE_ENV === 'production';
+  const dataDirResult = resolveDataDir(env);
+  const providerRaw = (env.LLM_PROVIDER || 'off').toLowerCase();
+  const provider: LlmProvider = (
+    ['openai', 'ollama', 'coze', 'off'] as const
+  ).includes(providerRaw as 'openai' | 'ollama' | 'coze' | 'off')
+    ? (providerRaw as LlmProvider)
+    : 'openai';
+  return {
+    isProd,
+    secretSource: 'ephemeral',
+    port: parseNumber(env.PORT ?? env.DEPLOY_RUN_PORT, 5000),
+    dbDriver: env.DATABASE_URL ? 'pg' : 'pglite',
+    databaseUrl: env.DATABASE_URL || undefined,
+    redisUrl: env.REDIS_URL || undefined,
+    dataDir: dataDirResult.dir,
+    dataDirSource: dataDirResult.source,
+    jwtSecret: crypto.randomBytes(32).toString('base64'),
+    messageEncryptionKey: crypto.randomBytes(32),
+    tokenTtlSeconds: parseNumber(env.TOKEN_TTL_SECONDS, 60 * 60 * 12),
+    vaultK: parseNumber(env.VAULT_K, 2),
+    vaultN: parseNumber(env.VAULT_N, 3),
+    vaultAutoUnsealShares: parseList(env.VAULT_AUTO_UNSEAL_SHARES),
+    vaultAutoBootstrap: parseBoolean(env.VAULT_AUTO_BOOTSTRAP, false),
+    adminUsernames: parseList(env.ADMIN_USERNAMES).map((u) => u.toLowerCase()),
+    bootstrapInviteCodes:
+      parseList(env.BOOTSTRAP_INVITE_CODES).length > 0
+        ? parseList(env.BOOTSTRAP_INVITE_CODES)
+        : ['CN-INVITE', 'CN-INVITE-A', 'CN-INVITE-B'],
+    rateLimitPerMinute: parseNumber(env.RATE_LIMIT_PER_MINUTE, 12),
+    maxMessageLength: parseNumber(env.MAX_MESSAGE_LENGTH, 1000),
+    llm: {
+      enabled: parseBoolean(env.LLM_NORMALIZE_ENABLED, true),
+      provider,
+      openaiBaseUrl: env.LLM_OPENAI_BASE_URL || 'https://api.openai.com/v1',
+      openaiApiKey: env.LLM_OPENAI_API_KEY || undefined,
+      openaiModel: env.LLM_OPENAI_MODEL || 'gpt-4o-mini',
+      ollamaBaseUrl: env.LLM_OLLAMA_BASE_URL || 'http://ollama:11434',
+      ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
+      cozeApiUrl: (env.LLM_COZE_API_URL || '').replace(/\/$/, ''),
+      cozeApiToken: env.LLM_COZE_API_TOKEN || '',
+      timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
+      onFailure: env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough',
     },
     oidc: {
       enabled: parseBoolean(env.OIDC_ENABLED, false),

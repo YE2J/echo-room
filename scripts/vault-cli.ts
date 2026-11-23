@@ -10,6 +10,7 @@
 //   docker compose run --rm app node dist-server/vault-cli.js invite TEAM-Q3 50
 //
 // init 输出的 N 份分片必须分发给不同保管人（线下/密码管理器），切勿存入服务器或数据库。
+import 'dotenv/config';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
 import { IdentityVault } from '../server/services/vault.ts';

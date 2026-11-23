@@ -144,11 +144,23 @@ export async function createDatabase(config: AppConfig): Promise<DatabaseClient>
     return new PgClient(pool);
   }
 
-  // dbDriver 已在 loadConfig 中裁决：生产默认要求 DATABASE_URL，显式 DB_DRIVER=pglite 可用于单节点评估
+  // dbDriver 在 loadConfig 中裁决：显式 DB_DRIVER、无 DATABASE_URL 时均走 PGlite（含单节点生产兜底）
   const { PGlite: PGliteImpl } = await import('@electric-sql/pglite');
-  const dataDir = path.join(config.dataDir, 'pglite');
-  fs.mkdirSync(dataDir, { recursive: true });
-  const db = new PGliteImpl(dataDir) as unknown as PGliteLikeFull;
+  let pgDataDir: string | null = null;
+  if (config.dataDir) {
+    pgDataDir = path.join(config.dataDir, 'pglite');
+    try {
+      fs.mkdirSync(pgDataDir, { recursive: true });
+    } catch (err) {
+      console.warn(`[db] unable to create PGlite data dir "${pgDataDir}": ${(err as Error).message}; falling back to in-memory mode`);
+      pgDataDir = null;
+    }
+  } else {
+    console.warn('[db] no writable data directory; running PGlite in-memory mode (data will be LOST on restart)');
+  }
+  const db = pgDataDir
+    ? (new PGliteImpl(pgDataDir) as unknown as PGliteLikeFull)
+    : (new PGliteImpl() as unknown as PGliteLikeFull);
   await db.waitReady;
   return new PGliteDatabase(db);
 }
@@ -181,6 +193,24 @@ CREATE TABLE IF NOT EXISTS aliases (
   alias           TEXT NOT NULL UNIQUE,
   created_at      BIGINT NOT NULL
 );
+-- 内容管理：封禁匿名昵称（非空即禁言，消息被拒且历史仍以归一化文本可见）
+ALTER TABLE aliases ADD COLUMN IF NOT EXISTS banned_at BIGINT;
+
+-- 溯源请求审批流：追踪"谁申请 → 谁凑分片 → 是否还原"。只存明文元信息与审批人，
+-- 绝不存 Shamir 份额值（份额只在服务端内存，重启即失效）。
+CREATE TABLE IF NOT EXISTS trace_requests (
+  id               BIGSERIAL PRIMARY KEY,
+  target_alias     TEXT NOT NULL,
+  reason           TEXT NOT NULL,
+  requester        TEXT NOT NULL,
+  status           TEXT NOT NULL DEFAULT 'pending', -- pending/approved/revealed/rejected/closed
+  approvals        JSONB NOT NULL DEFAULT '[]',     -- [{username, at}]，不含份额
+  revealed_username TEXT,
+  reject_reason    TEXT,
+  created_at       BIGINT NOT NULL,
+  updated_at       BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trace_requests_status_created ON trace_requests (status, created_at DESC);
 
 -- 身份保险库：user→alias 映射整表加密。
 -- lookup_hmac = HMAC(vault 派生子密钥, userId)，仅用于在保险库解封时定位行；
@@ -222,6 +252,77 @@ CREATE TABLE IF NOT EXISTS settings (
   value           TEXT NOT NULL,
   updated_at      BIGINT NOT NULL
 );
+
+-- 保险库分片加密备份（VAULT_AUTO_BOOTSTRAP 引导时写入；密文由 messageEncryptionKey 派生密钥加密，
+-- 供重启后自动恢复解封。分片绝不落明文）。
+CREATE TABLE IF NOT EXISTS vault_shares (
+  id              BIGSERIAL PRIMARY KEY,
+  vault_id        TEXT NOT NULL,
+  idx             INTEGER NOT NULL,
+  share_enc       TEXT NOT NULL,
+  created_at      BIGINT NOT NULL,
+  UNIQUE (vault_id, idx)
+);
+CREATE INDEX IF NOT EXISTS idx_vault_shares_vault ON vault_shares (vault_id, idx);
+
+-- ============ M3 多聊天室 ============
+
+-- 房间：type=public 全员可见可进；private 仅成员可进（成员由 owner/管理员维护）。
+-- owner_user_id 为空 = 系统级房间（如默认大厅）。
+CREATE TABLE IF NOT EXISTS rooms (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name            TEXT NOT NULL UNIQUE,
+  type            TEXT NOT NULL DEFAULT 'public' CHECK (type IN ('public', 'private')),
+  description     TEXT,
+  owner_user_id   UUID REFERENCES users(id),
+  archived_at     BIGINT,                        -- 非空即归档（不可见/不可进）
+  created_at      BIGINT NOT NULL,
+  updated_at      BIGINT NOT NULL
+);
+
+-- 房间成员：role=owner 的成员即房主（owner_user_id 冗余一个引用，便于 list 直查）。
+CREATE TABLE IF NOT EXISTS room_members (
+  room_id         UUID NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'member')),
+  joined_at       BIGINT NOT NULL,
+  PRIMARY KEY (room_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members (user_id);
+
+-- 建房申请：普通用户发起 → 管理员审批通过后在同一事务里创建房间并把申请人设为 owner。
+CREATE TABLE IF NOT EXISTS room_requests (
+  id              BIGSERIAL PRIMARY KEY,
+  name            TEXT NOT NULL,
+  type            TEXT NOT NULL DEFAULT 'public' CHECK (type IN ('public', 'private')),
+  description     TEXT,
+  requester       TEXT NOT NULL,                 -- 申请人 username（不落 userId，避免真实身份外溢）
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  reject_reason   TEXT,
+  reviewed_by     TEXT,                          -- 审批人 username
+  created_at      BIGINT NOT NULL,
+  updated_at      BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_room_requests_status_created ON room_requests (status, created_at DESC);
+
+-- LLM 用量统计：每次真实模型调用记一行；token 取不到记 NULL，失败也记（ok=false + error 摘要）。
+CREATE TABLE IF NOT EXISTS llm_usage (
+  id             BIGSERIAL PRIMARY KEY,
+  provider       TEXT NOT NULL DEFAULT '',
+  model          TEXT NOT NULL DEFAULT '',
+  input_tokens   INTEGER,
+  output_tokens  INTEGER,
+  total_tokens   INTEGER,
+  latency_ms     INTEGER,
+  ok             BOOLEAN NOT NULL DEFAULT true,
+  error          TEXT,                              -- 失败摘要（前 500 字符），不落原文
+  created_at     BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created ON llm_usage (created_at DESC);
+
+-- messages 关联房间：既有消息在启动迁移时回填到默认大厅；room_id 为空 = 尚未归属（迁移覆盖）。
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS room_id UUID REFERENCES rooms(id);
+CREATE INDEX IF NOT EXISTS idx_messages_room_created ON messages (room_id, created_at DESC);
 `;
 
 export async function runMigrations(db: DatabaseClient): Promise<void> {

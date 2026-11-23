@@ -43,8 +43,9 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
       );
       setAuthCookie(reply, token, ctx);
       const identity = await ctx.vault.findIdentityByUser(user.id);
-      await writeAudit(ctx.db, { actor: user.username, action: 'auth.register', meta: { via: 'invite' } });
-      await writeAudit(ctx.db, { actor: user.username, action: 'invite.consume' });
+      // 匿名性红线：用户侧行为 actor 一律 null，meta 只允许无身份信息的结果
+      await writeAudit(ctx.db, { actor: null, action: 'auth.register', meta: { ok: true } });
+      await writeAudit(ctx.db, { actor: null, action: 'invite.consume', meta: { ok: true } });
       return reply.code(201).send({
         alias: identity?.alias ?? null,
         visual: identity ? aliasVisual(identity.alias) : null,
@@ -75,7 +76,7 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
       if (ctx.vault.isUnsealed()) {
         identity = await ctx.vault.findIdentityByUser(user.id);
       }
-      await writeAudit(ctx.db, { actor: user.username, action: 'auth.login', meta: { vault: ctx.vault.isUnsealed() ? 'unsealed' : 'sealed' } });
+      await writeAudit(ctx.db, { actor: null, action: 'auth.login', meta: { ok: true } });
       return reply.send({
         alias: identity?.alias ?? null,
         visual: identity ? aliasVisual(identity.alias) : null,
@@ -86,8 +87,9 @@ export function registerAuthRoutes(app: FastifyInstance, ctx: AppContext): void 
     } catch (err) {
       if (err instanceof AuthError) {
         await writeAudit(ctx.db, {
-          actor: parsed.data.username,
+          actor: null,
           action: 'auth.login_failed',
+          meta: { ok: false },
         });
         return reply.code(err.statusCode).send({ error: err.message });
       }

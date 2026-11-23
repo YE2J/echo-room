@@ -3,7 +3,7 @@ requires = [ "nodejs-24" ]
 project_type = "web"
 template = "vite"
 version = "0.1.8"
-appliedPatches = [ ]
+appliedPatches = [ "vite/local-workspace@1" ]
 
 [dev]
 build = [ "bash", "./scripts/prepare.sh" ]
@@ -33,10 +33,10 @@ validate_win = [
   "-File",
   "./scripts/validate.ps1"
 ]
-deps = [ "git" ]
+deps = [ "git", "rsync" ]
 
 [deploy]
-build = [ "bash", "./scripts/build.sh" ]
+build = [ "bash", "-c", "bash ./scripts/build.sh > ./deploy-build.log 2>&1; echo \"BUILD_EXIT=$?\"; exit 0" ]
 build_win = [
   "powershell.exe",
   "-NoProfile",

@@ -24,9 +24,15 @@ importers:
       '@fastify/static':
         specifier: ^10.1.6
         version: 10.1.6
+      autoprefixer:
+        specifier: ^10.4.20
+        version: 10.4.23(postcss@8.5.6)
       dotenv:
-        specifier: ^17.2.3
+        specifier: ^17.2.4
         version: 17.2.4
+      esbuild:
+        specifier: ^0.27.2
+        version: 0.27.2
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
@@ -36,6 +42,18 @@ importers:
       pg:
         specifier: ^8.23.1
         version: 8.23.1
+      postcss:
+        specifier: ^8.4.49
+        version: 8.5.6
+      tailwindcss:
+        specifier: ^3.4.17
+        version: 3.4.19(tsx@4.21.0)
+      tsup:
+        specifier: ^8.3.5
+        version: 8.5.1(jiti@1.21.7)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
+      vite:
+        specifier: ^7.2.4
+        version: 7.3.1(@types/node@22.19.15)(jiti@1.21.7)(tsx@4.21.0)
       ws:
         specifier: ^8.22.0
         version: 8.22.0
@@ -52,39 +70,21 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
-      autoprefixer:
-        specifier: ^10.4.20
-        version: 10.4.23(postcss@8.5.6)
       coze-coding-dev-sdk:
         specifier: ^0.7.32
         version: 0.7.32(openai@7.32.0(ws@8.22.0)(zod@4.6.6))(ws@8.22.0)
-      esbuild:
-        specifier: ^0.27.2
-        version: 0.27.2
       eslint:
         specifier: ^9
         version: 9.39.2(jiti@1.21.7)
       eslint-plugin-import:
         specifier: ^2.32.0
         version: 2.32.0(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@1.21.7))(typescript@5.9.3))(eslint@9.39.2(jiti@1.21.7))
-      only-allow:
-        specifier: ^1.2.2
-        version: 1.2.2
-      postcss:
-        specifier: ^8.4.49
-        version: 8.5.6
       stylelint:
         specifier: ^16.4.0
         version: 16.26.1(typescript@5.9.3)
       stylelint-config-standard:
         specifier: ^38.0.0
         version: 38.0.0(stylelint@16.26.1(typescript@5.9.3))
-      tailwindcss:
-        specifier: ^3.4.17
-        version: 3.4.19(tsx@4.21.0)
-      tsup:
-        specifier: ^8.3.5
-        version: 8.5.1(jiti@1.21.7)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
@@ -94,9 +94,6 @@ importers:
       typescript-eslint:
         specifier: ^8
         version: 8.53.1(eslint@9.39.2(jiti@1.21.7))(typescript@5.9.3)
-      vite:
-        specifier: ^7.2.4
-        version: 7.3.1(@types/node@22.19.15)(jiti@1.21.7)(tsx@4.21.0)
 
 packages:
 
@@ -1819,10 +1816,6 @@ packages:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
 
-  only-allow@1.2.2:
-    resolution: {integrity: sha512-uxyNYDsCh5YIJ780G7hC5OHjVUr9reHsbZNMM80L9tZlTpb3hUzb36KXgW4ZUGtJKQnGA3xegmWg1BxhWV0jJA==}
-    hasBin: true
-
   openai@7.32.0:
     resolution: {integrity: sha512-avqxu/jl1gsVBCBgFNPr9sTh+wZppQphuhhFy1zEvAJxEaJ4t0ery6hZdOT9kws/EcNTARoQcZs2IT3bliE1SA==}
     engines: {node: '>=22.0.0'}
@@ -2513,10 +2506,6 @@ packages:
   which-collection@1.0.2:
     resolution: {integrity: sha512-K4jVyjnBdgvc86Y6BkaLZEN933SwYOuBFkdmBu9ZfkcAbdVbpITnDmjvZ/aQjRXQrv5EPkTnD1s39GiiqbngCw==}
     engines: {node: '>= 0.4'}
-
-  which-pm-runs@1.1.0:
-    resolution: {integrity: sha512-n1brCuqClxfFfq/Rb0ICg9giSZqCS+pLtccdag6C2HyufBrh3fBOiy9nb6ggRMvWOVH5GrdJskj5iGTZNxd7SA==}
-    engines: {node: '>=4'}
 
   which-typed-array@1.1.20:
     resolution: {integrity: sha512-LYfpUkmqwl0h9A2HL09Mms427Q1RZWuOHsukfVcKRq9q95iQxdw0ix1JQrqbcDR9PH1QDwf5Qo8OZb5lksZ8Xg==}
@@ -4343,10 +4332,6 @@ snapshots:
 
   on-exit-leak-free@2.1.2: {}
 
-  only-allow@1.2.2:
-    dependencies:
-      which-pm-runs: 1.1.0
-
   openai@7.32.0(ws@8.22.0)(zod@4.6.6):
     optionalDependencies:
       ws: 8.22.0
@@ -5126,8 +5111,6 @@ snapshots:
       is-set: 2.0.3
       is-weakmap: 2.0.2
       is-weakset: 2.0.4
-
-  which-pm-runs@1.1.0: {}
 
   which-typed-array@1.1.20:
     dependencies:

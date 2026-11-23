@@ -103,3 +103,8 @@ export async function createMessageBus(config: AppConfig): Promise<MessageBus> {
   }
   return new MemoryBus();
 }
+
+/** 韧性兜底：任何情况下都返回进程内内存总线（Redis 不可用时不阻断服务监听） */
+export function createMemoryBus(): MessageBus {
+  return new MemoryBus();
+}

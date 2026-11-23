@@ -14,9 +14,11 @@ export function renderAuthPage(onAuthed: (result: AuthResult) => void): HTMLElem
 
   card.innerHTML = `
     <div class="auth-brand">
-      <span style="color:var(--accent)">${icons.bell}</span>
+      <span class="auth-logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 10.5a4 4 0 0 1 0 3"/><path d="M15.5 10.5a4 4 0 0 0 0 3"/><path d="M10 14.5h4"/></svg>
+      </span>
       <h1>匿名回音</h1>
-      <p>企业内部意见收集 · 问题匿名举报通道</p>
+      <p class="auth-subtitle">企业内部意见收集 · 问题匿名举报通道</p>
     </div>
     <form class="auth-form" autocomplete="off">
       <div class="field">
@@ -42,7 +44,7 @@ export function renderAuthPage(onAuthed: (result: AuthResult) => void): HTMLElem
       <button type="button" data-role="switch">使用邀请码注册</button>
     </div>
     <div class="auth-foot">
-      <span style="color:var(--safe)">${icons.shield}</span>
+      <span class="auth-foot-icon">${icons.shield}</span>
       <span>登录后系统为你签发随机匿名昵称，聊天室中任何人都无法看到你的真实身份。身份映射表整表加密，密钥按 Shamir 门限分片保管。</span>
     </div>
   `;

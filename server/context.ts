@@ -4,6 +4,7 @@ import type { DatabaseClient } from './db';
 import type { MessageBus } from './bus';
 import { IdentityVault } from './services/vault';
 import { Rewriter } from './services/rewriter';
+import { TraceShareDepository } from './services/trace';
 
 export interface AppContext {
   config: AppConfig;
@@ -11,6 +12,7 @@ export interface AppContext {
   bus: MessageBus;
   vault: IdentityVault;
   rewriter: Rewriter;
+  traceShares: TraceShareDepository;
 }
 
 export interface AuthenticatedUser {
