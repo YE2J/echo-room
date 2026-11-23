@@ -35,10 +35,11 @@ export interface LlmTestResult {
 export const LLM_TEST_SAMPLE = '这个提议挺不错的，我觉得可以试试看！！！';
 
 /**
- * 扣子编程项目 ID（19 位，超出 Number.MAX_SAFE_INTEGER）。
- * 用 BigInt 保持精确，并在提交时以数字字面量（无引号）序列化进 JSON body。
+ * 扣子编程项目 ID 的格式校验：19 位整数超出 Number.MAX_SAFE_INTEGER，
+ * 因此以字符串保存、在请求体里用占位符替换成无引号的数字字面量。
+ * 真实 ID 由部署方通过 LLM_COZE_PROJECT_ID 提供，源码里不留任何具体 ID。
  */
-const COZE_PROJECT_ID = 7697949201044504619n;
+const COZE_PROJECT_ID_PATTERN = /^\d{15,20}$/;
 
 const SYSTEM_PROMPT = [
   '你是一个中文匿名通讯系统的文本风格归一化器。任务是改写用户消息以抹除可识别个人身份的写作风格，但完整保留事实、观点与诉求。',
@@ -272,6 +273,10 @@ export class Rewriter {
     if (!llm.apiKey) {
       throw new Error('coze API Token is not configured');
     }
+    const projectId = (this.config.llm.cozeProjectId || '').trim();
+    if (!COZE_PROJECT_ID_PATTERN.test(projectId)) {
+      throw new Error('LLM_COZE_PROJECT_ID 未配置或格式非法（应为 15-20 位纯数字的扣子编程项目 ID）');
+    }
     const base = (llm.baseUrl ?? '').replace(/\/$/, '');
     const headers = {
       'Content-Type': 'application/json',
@@ -290,7 +295,7 @@ export class Rewriter {
         type: 'query',
         session_id: 'echo-rewrite',
         project_id: '__COZE_PROJECT_ID__',
-      }).replace('"__COZE_PROJECT_ID__"', COZE_PROJECT_ID.toString());
+      }).replace('"__COZE_PROJECT_ID__"', projectId);
       const submitRes = await fetch(`${base}/async_run`, {
         method: 'POST',
         headers,

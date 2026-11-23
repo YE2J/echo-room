@@ -72,7 +72,7 @@
 - `VAULT_K` / `VAULT_N`：Shamir 门限（默认 2/3）；`VAULT_AUTO_UNSEAL_SHARES` 仅供开发/单管理员环境
 - `LLM_NORMALIZE_ENABLED`、`LLM_PROVIDER`（`openai`|`ollama`|`off`）、`LLM_*` 连接参数、`LLM_ON_FAILURE`（`passthrough`|`reject`）
 - `ADMIN_USERNAMES`：管理员用户名逗号分隔（可 unseal/签发邀请码）
-- `BOOTSTRAP_INVITE_CODES`：启动时自动注入的邀请码（默认含 `CN-INVITE`）
+- `BOOTSTRAP_INVITE_CODES`：启动时自动注入的邀请码（**无内置默认值**，由部署方通过环境变量提供）
 
 ## 代码规范
 

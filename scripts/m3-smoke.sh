@@ -1,6 +1,6 @@
 #!/bin/bash
 # ABOUTME: M3 多聊天室冒烟脚本（HTTP + WS 真实链路验证，开发库）。
-# 依赖：dev server 已运行（默认 localhost:5000）、vault 已解封、CN-INVITE 邀请码可用。
+# 依赖：dev server 已运行（默认 localhost:5000）、vault 已解封、一个可用的邀请码（SMOKE_INVITE_CODE）。
 # 用法：bash scripts/m3-smoke.sh
 set -Eeuo pipefail
 
@@ -12,7 +12,7 @@ TS="$(date +%s)"
 #   SMOKE_ADMIN_USER 需已在 ADMIN_USERNAMES 中；SMOKE_ADMIN_PASS 为该账号密码
 ADMIN_USER="${SMOKE_ADMIN_USER:?请设置 SMOKE_ADMIN_USER（需出现在 ADMIN_USERNAMES 中）}"
 ADMIN_PASS="${SMOKE_ADMIN_PASS:?请设置 SMOKE_ADMIN_PASS}"
-INVITE_CODE="${SMOKE_INVITE_CODE:-CN-INVITE}"
+INVITE_CODE="${SMOKE_INVITE_CODE:?请设置 SMOKE_INVITE_CODE（本次运行要用的邀请码）}"
 PLAIN_USER="m3_plain_${TS}"
 PLAIN_PASS="M3Smoke_Plain_${TS}"
 PUB_ROOM="M3PublicA_${TS}"

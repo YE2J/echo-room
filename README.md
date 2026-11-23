@@ -102,7 +102,8 @@ pnpm dev     # tsx watch + Vite middleware，:5000
 ```
 
 开发态会在 `.data/` 自动生成密钥、自动初始化并解封保险库、分片写入 `.data/dev-vault-shares.json`
-（仅开发态）。默认引导邀请码 `CN-INVITE` / `CN-INVITE-A` / `CN-INVITE-B`。
+（仅开发态）。邀请码不再有内置默认值：请自行在 `.env` 设置 `BOOTSTRAP_INVITE_CODES`（例如 `DEV-$(openssl rand -hex 4)`），
+或先把某个用户名加入 `ADMIN_USERNAMES` 后由后台签发。
 
 ```bash
 pnpm build   # dist/（前端）+ dist-server/（server/server.js、scripts/vault-cli.js）
@@ -118,7 +119,7 @@ pnpm validate  # tsc + eslint + stylelint
 | `MESSAGE_ENCRYPTION_KEY` | — | base64 编码 32 字节（AES-256）；同样拒绝占位值 |
 | （密钥降级） | — | 平台要求端口必须监听，所以配置非法时服务**仍会启动**，但改用临时随机密钥：`/api/health` 返回 `secretSource:"ephemeral"`，日志打 `FATAL-DEGRADED`。此时重启后旧密文永久不可解——**看到 ephemeral 必须立刻修配置并重建数据** |
 | `ADMIN_USERNAMES` | 空 | 逗号分隔的管理员用户名（大小写不敏感）；只有这里或 `users.is_admin` 的人能进后台 |
-| `BOOTSTRAP_INVITE_CODES` | `CN-INVITE,...` | 启动时写入的引导邀请码；上线后请轮换并清空 |
+| `BOOTSTRAP_INVITE_CODES` | 空 | 启动时写入的引导邀请码（**无内置默认值**，由部署方自行生成）；上线后请轮换并清空 |
 | `VAULT_K` / `VAULT_N` | 2 / 3 | Shamir 门限 |
 | `VAULT_AUTO_BOOTSTRAP` | `false` | 首次启动是否自动建库并打印分片（生产保持 false） |
 | `VAULT_AUTO_UNSEAL_SHARES` | 空 | 启动即解封（仅 PoC） |

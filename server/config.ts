@@ -108,6 +108,8 @@ export interface AppConfig {
     ollamaModel: string;
     cozeApiUrl: string;
     cozeApiToken: string;
+    /** 扣子「语气改写智能体」所属的编程项目 ID（19 位数字，超出 JS 安全整数，按字符串存） */
+    cozeProjectId: string;
     timeoutMs: number;
     onFailure: LlmFailureStrategy;
   };
@@ -162,6 +164,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // 归一化总开关默认开启；provider 为 off 时自动降级为确定性本地规则归一化。
   const llmEnabled = parseBoolean(env.LLM_NORMALIZE_ENABLED, true);
 
+  // provider=coze 必须显式给出项目 ID：以前是源码里硬编码常量，既泄漏真实 ID 又无法多环境复用。
+  if (provider === 'coze' && !(env.LLM_COZE_PROJECT_ID || '').trim()) {
+    throw new Error('LLM_PROVIDER=coze 需要设置 LLM_COZE_PROJECT_ID（扣子编程项目 ID，纯数字）');
+  }
+
   const driverOverride = (env.DB_DRIVER || '').toLowerCase();
   // 生产无 DATABASE_URL 时不再抛错：降级 PGlite（单节点兜底，服务必须能起），
   // 由启动诊断横幅与 WARN 提示数据不会落到外部 PG。
@@ -191,7 +198,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     bootstrapInviteCodes:
       parseList(env.BOOTSTRAP_INVITE_CODES).length > 0
         ? parseList(env.BOOTSTRAP_INVITE_CODES)
-        : ['CN-INVITE', 'CN-INVITE-A', 'CN-INVITE-B'],
+        : [], // 不提供内置默认邀请码：默认码会随仓库公开而失效，必须由部署方自己设置
     rateLimitPerMinute: parseNumber(env.RATE_LIMIT_PER_MINUTE, 12),
     maxMessageLength: parseNumber(env.MAX_MESSAGE_LENGTH, 1000),
     llm: {
@@ -204,6 +211,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
       cozeApiUrl: (env.LLM_COZE_API_URL || '').replace(/\/$/, ''),
       cozeApiToken: env.LLM_COZE_API_TOKEN || '',
+      cozeProjectId: (env.LLM_COZE_PROJECT_ID || '').trim(),
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: (env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough'),
     },
@@ -251,7 +259,7 @@ export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig 
     bootstrapInviteCodes:
       parseList(env.BOOTSTRAP_INVITE_CODES).length > 0
         ? parseList(env.BOOTSTRAP_INVITE_CODES)
-        : ['CN-INVITE', 'CN-INVITE-A', 'CN-INVITE-B'],
+        : [], // 不提供内置默认邀请码：默认码会随仓库公开而失效，必须由部署方自己设置
     rateLimitPerMinute: parseNumber(env.RATE_LIMIT_PER_MINUTE, 12),
     maxMessageLength: parseNumber(env.MAX_MESSAGE_LENGTH, 1000),
     llm: {
@@ -264,6 +272,7 @@ export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig 
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
       cozeApiUrl: (env.LLM_COZE_API_URL || '').replace(/\/$/, ''),
       cozeApiToken: env.LLM_COZE_API_TOKEN || '',
+      cozeProjectId: (env.LLM_COZE_PROJECT_ID || '').trim(),
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough',
     },
