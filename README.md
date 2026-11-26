@@ -4,6 +4,10 @@
 
 > 个人小项目，vibe coding 产物，还在打磨。不保证及时修 bug，也可能不回 issue。
 
+![界面示意](assets/ui-preview.jpg)
+
+> 界面示意图。前端样式集中在 `src/index.css` / `src/styles.css`，风格可自行改。
+
 ## 有什么
 
 | 能力 | 说明 |
@@ -35,8 +39,10 @@ docker compose up -d --build   # http://localhost:5000
 本地开发（PGlite，不需要 Docker）：
 
 ```bash
-pnpm install && pnpm dev
+pnpm install && pnpm dev:local
 ```
+
+`pnpm dev` 是扣子平台内开发用的启动方式（依赖平台胶水脚本），平台外请用 `pnpm dev:local`。
 
 上线前请按 [部署文档](docs/DEPLOYMENT.md) 做引导与解封；安全底线见 [安全基线](docs/SECURITY_BASELINE.md)。
 

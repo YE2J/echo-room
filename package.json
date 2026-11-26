@@ -24,6 +24,7 @@
   "scripts": {
     "build": "bash ./scripts/build.sh",
     "dev": "bash ./scripts/dev.sh",
+    "dev:local": "bash ./scripts/dev-local.sh",
     "lint": "eslint",
     "lint:build": "eslint . --quiet",
     "lint:style": "stylelint \"src/**/*.css\"",
