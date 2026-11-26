@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-/** 扣子智能体域名默认值：必须由部署方通过 LLM_COZE_API_URL 显式提供，禁止内置任何真实域名 */
-const DEFAULT_COZE_API_URL = '';
+/** 自建智能体（HTTP）域名默认值：必须由部署方通过 LLM_AGENT_API_URL 显式提供，禁止内置任何真实域名 */
+const DEFAULT_AGENT_API_URL = '';
 
 function parseBoolean(value: string | undefined, defaultValue = false): boolean {
   if (value === undefined) return defaultValue;
@@ -46,15 +46,20 @@ export interface DataDirResult {
 }
 
 /**
- * 按优先级探测可写数据目录：DATA_DIR → COZE_WORKSPACE_PATH/.data → cwd/.data → os.tmpdir()/echo-room-data。
+ * 按优先级探测可写数据目录：DATA_DIR → WORKSPACE_PATH/.data → cwd/.data → os.tmpdir()/echo-room-data。
  * 每个候选都会 mkdir -p 并写入/删除探针文件验证可写；全部失败返回 dir=null，调用方降级 PGlite 内存模式。
  */
+/** 平台工作区路径：新名 WORKSPACE_PATH 优先，兼容历史注入的 COZE_WORKSPACE_PATH。 */
+function resolveWorkspacePath(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.WORKSPACE_PATH || env.COZE_WORKSPACE_PATH;
+}
+
 export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): DataDirResult {
   const candidates: Array<{ label: string; dir: string | null }> = [
     { label: 'DATA_DIR', dir: env.DATA_DIR || null },
     {
-      label: 'COZE_WORKSPACE_PATH/.data',
-      dir: env.COZE_WORKSPACE_PATH ? path.join(env.COZE_WORKSPACE_PATH, '.data') : null,
+      label: 'WORKSPACE_PATH/.data',
+      dir: resolveWorkspacePath(env) ? path.join(resolveWorkspacePath(env) as string, '.data') : null,
     },
     { label: 'cwd/.data', dir: path.resolve(process.cwd(), '.data') },
     { label: 'os.tmpdir()/echo-room-data', dir: path.join(os.tmpdir(), 'echo-room-data') },
@@ -74,7 +79,7 @@ export function resolveDataDir(env: NodeJS.ProcessEnv = process.env): DataDirRes
   return { dir: null, source: 'none writable; fallback to in-memory PGlite' };
 }
 
-export type LlmProvider = 'openai' | 'ollama' | 'coze' | 'off';
+export type LlmProvider = 'openai' | 'ollama' | 'agent' | 'off';
 export type LlmFailureStrategy = 'passthrough' | 'reject';
 
 export interface AppConfig {
@@ -109,10 +114,10 @@ export interface AppConfig {
     openaiModel: string;
     ollamaBaseUrl: string;
     ollamaModel: string;
-    cozeApiUrl: string;
-    cozeApiToken: string;
-    /** 扣子编程项目 ID（19 位整数，LLM_PROVIDER=coze 时必填），由部署方通过 LLM_COZE_PROJECT_ID 提供 */
-    cozeProjectId: string;
+    agentApiUrl: string;
+    agentApiToken: string;
+    /** 自建智能体项目 ID（15-20 位数字，LLM_PROVIDER=agent 时必填），由部署方通过 LLM_AGENT_PROJECT_ID 提供 */
+    agentProjectId: string;
     timeoutMs: number;
     onFailure: LlmFailureStrategy;
   };
@@ -125,8 +130,20 @@ export interface AppConfig {
   };
 }
 
+/** provider 归一：'agent' 为通用 HTTP 智能体；历史值 'coze' 视作同一实现，保证老配置继续可用。 */
+function normalizeProviderId(raw: string | undefined): LlmProvider {
+  const id = (raw || 'off').toLowerCase();
+  const normalized = id === 'coze' ? 'agent' : id;
+  return (['openai', 'ollama', 'agent', 'off'] as const).includes(
+    normalized as 'openai' | 'ollama' | 'agent' | 'off',
+  )
+    ? (normalized as LlmProvider)
+    : 'openai';
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const isProd = env.COZE_PROJECT_ENV === 'PROD' || env.NODE_ENV === 'production';
+  const isProd =
+    env.PLATFORM_ENV === 'PROD' || env.COZE_PROJECT_ENV === 'PROD' || env.NODE_ENV === 'production';
   const dataDirResult = resolveDataDir(env);
   const dataDir = dataDirResult.dir;
 
@@ -145,14 +162,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('MESSAGE_ENCRYPTION_KEY must decode to 32 bytes (AES-256)');
   }
 
-  const providerRaw = (env.LLM_PROVIDER || 'off').toLowerCase();
-  // 'coze' 走扣子智能体，'ollama' 走本地，'off' 关闭；其它取值（含未设置以外的未知值）
-  // 一律落到 OpenAI 兼容分支，保持历史行为不变。
-  const provider: LlmProvider = (
-    ['openai', 'ollama', 'coze', 'off'] as const
-  ).includes(providerRaw as 'openai' | 'ollama' | 'coze' | 'off')
-    ? (providerRaw as LlmProvider)
-    : 'openai';
+  // 'agent' 走自建 HTTP 智能体（历史值 'coze' 作为同义别名保留兼容），'ollama' 走本地，'off' 关闭；
+  // 其它取值一律落到 OpenAI 兼容分支，保持历史行为不变。
+  const provider: LlmProvider = normalizeProviderId(env.LLM_PROVIDER);
   // 归一化总开关默认开启；provider 为 off 时自动降级为确定性本地规则归一化。
   const llmEnabled = parseBoolean(env.LLM_NORMALIZE_ENABLED, true);
 
@@ -193,9 +205,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       openaiModel: env.LLM_OPENAI_MODEL || 'gpt-4o-mini',
       ollamaBaseUrl: env.LLM_OLLAMA_BASE_URL || 'http://ollama:11434',
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
-      cozeApiUrl: (env.LLM_COZE_API_URL || DEFAULT_COZE_API_URL).replace(/\/$/, ''),
-      cozeApiToken: env.LLM_COZE_API_TOKEN || '',
-      cozeProjectId: env.LLM_COZE_PROJECT_ID || '',
+      agentApiUrl: (env.LLM_AGENT_API_URL || env.LLM_COZE_API_URL || DEFAULT_AGENT_API_URL).replace(/\/$/, ''),
+      agentApiToken: env.LLM_AGENT_API_TOKEN || env.LLM_COZE_API_TOKEN || '',
+      agentProjectId: env.LLM_AGENT_PROJECT_ID || env.LLM_COZE_PROJECT_ID || '',
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: (env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough'),
     },
@@ -215,14 +227,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
  * 调用方需 console.warn 记录原因（会话与密文在重启后失效，属可接受的降级）。
  */
 export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const isProd = env.COZE_PROJECT_ENV === 'PROD' || env.NODE_ENV === 'production';
+  const isProd =
+    env.PLATFORM_ENV === 'PROD' || env.COZE_PROJECT_ENV === 'PROD' || env.NODE_ENV === 'production';
   const dataDirResult = resolveDataDir(env);
-  const providerRaw = (env.LLM_PROVIDER || 'off').toLowerCase();
-  const provider: LlmProvider = (
-    ['openai', 'ollama', 'coze', 'off'] as const
-  ).includes(providerRaw as 'openai' | 'ollama' | 'coze' | 'off')
-    ? (providerRaw as LlmProvider)
-    : 'openai';
+  const provider: LlmProvider = normalizeProviderId(env.LLM_PROVIDER);
   return {
     isProd,
     secretSource: 'ephemeral',
@@ -251,9 +259,9 @@ export function fallbackConfig(env: NodeJS.ProcessEnv = process.env): AppConfig 
       openaiModel: env.LLM_OPENAI_MODEL || 'gpt-4o-mini',
       ollamaBaseUrl: env.LLM_OLLAMA_BASE_URL || 'http://ollama:11434',
       ollamaModel: env.LLM_OLLAMA_MODEL || 'qwen2.5:7b',
-      cozeApiUrl: (env.LLM_COZE_API_URL || DEFAULT_COZE_API_URL).replace(/\/$/, ''),
-      cozeApiToken: env.LLM_COZE_API_TOKEN || '',
-      cozeProjectId: env.LLM_COZE_PROJECT_ID || '',
+      agentApiUrl: (env.LLM_AGENT_API_URL || env.LLM_COZE_API_URL || DEFAULT_AGENT_API_URL).replace(/\/$/, ''),
+      agentApiToken: env.LLM_AGENT_API_TOKEN || env.LLM_COZE_API_TOKEN || '',
+      agentProjectId: env.LLM_AGENT_PROJECT_ID || env.LLM_COZE_PROJECT_ID || '',
       timeoutMs: parseNumber(env.LLM_TIMEOUT_MS, 8000),
       onFailure: env.LLM_ON_FAILURE === 'reject' ? 'reject' : 'passthrough',
     },

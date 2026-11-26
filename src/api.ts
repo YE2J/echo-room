@@ -119,7 +119,7 @@ export interface AdminMessage {
 }
 
 // ---- M3 模型设置 ----
-export type LlmProviderId = 'coze' | 'openai' | 'ollama';
+export type LlmProviderId = 'agent' | 'coze' | 'openai' | 'ollama';
 
 /** GET /api/admin/llm/config 与 PUT 保存后的视图（apiKey 只含掩码，绝不回传明文） */
 export interface LlmConfigView {

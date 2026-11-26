@@ -1,3 +1,10 @@
+## 未发布 — 去除平台标识
+
+- 环境变量改名（均保留旧名兼容读取，生产配置无需改动）：`LLM_COZE_*` → `LLM_AGENT_*`，`COZE_PROJECT_ENV` → `PLATFORM_ENV`，`COZE_WORKSPACE_PATH` → `WORKSPACE_PATH`
+- `LLM_PROVIDER=coze` → `LLM_PROVIDER=agent`（`coze` 作为同义别名仍被接受）
+- 管理后台 provider 选项与文案改为「自建智能体」；README / .env.example / docker-compose / 代码注释同步
+- 移除平台项目描述文件（`.coze`）出仓库，改由部署环境自带
+
 # 变更记录
 
 本项目按里程碑推进；版本号与里程碑对应。日期为里程碑验收日。
@@ -23,8 +30,8 @@
 ### 开源发布清理
 
 - `scripts/m3-smoke.sh`：移除硬编码的管理员账号/口令与固定邀请码，改为环境变量注入 + 随机生成
-- 移除内部改写智能体域名 `LLM_COZE_API_URL` 与 `project_id` 硬编码（config / docker-compose / .env.example 一律置空，改由部署方填写）；`rewriter.ts` 对 `LLM_COZE_PROJECT_ID` 增加 15-20 位纯数字格式校验
-- 内部任务文档 `assets/coze_provider_task.md` 移出版本管理（磁盘保留）
+- 移除改写智能体域名与 `project_id` 的硬编码（config / docker-compose / .env.example 一律置空，改由部署方填写）；`rewriter.ts` 对项目 ID 增加 15-20 位纯数字格式校验
+- 内部任务文档移出版本管理（磁盘保留）
 - `VAULT_AUTO_BOOTSTRAP` 默认 `true` → `false`（否则启动即自动解封，与「平时无法溯源」矛盾）；`BOOTSTRAP_INVITE_CODES` 默认清空并在启动日志提示从管理后台签发
 - 生产态拒绝 `.env.example` 的占位密钥；`/api/health` 新增 `secretSource`（`env` / `ephemeral`），配置非法降级时打显眼的 `FATAL-DEGRADED` 日志（旧密文重启后不可恢复）
 - 启动日志不再逐条打印全部环境变量名（含 `*_API_KEY` / `*_TOKEN`），只打数量 + 关注项 `[set]/[unset]`
@@ -57,7 +64,7 @@
 - 邀请码 + 本地账号准入（scrypt）、OIDC 接口预留
 - 随机匿名昵称 + 确定性头像
 - WebSocket 实时收发（首帧鉴权、心跳、限流、乐观发送）
-- LLM 语气归一化（OpenAI 兼容 / Ollama / 扣子 Coze / 本地确定性规则）
+- LLM 语气归一化（OpenAI 兼容 / Ollama / 自建 HTTP 智能体 / 本地确定性规则）
 - 消息 AES-256-GCM 密文落库，对外只返回归一化文本
 - 身份保险库：映射整表加密 + Shamir K/N 分片，门限 reveal 现场重组
 - Docker Compose 一键部署、部署文档、安全基线

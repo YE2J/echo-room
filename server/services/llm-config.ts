@@ -19,7 +19,7 @@ export interface ResolvedLlmConfig {
   source: 'settings' | 'env';
 }
 
-const VALID_PROVIDERS: LlmProvider[] = ['coze', 'openai', 'ollama', 'off'];
+const VALID_PROVIDERS: LlmProvider[] = ['agent', 'openai', 'ollama', 'off'];
 
 /** 派生用于 API Key 落库加密的密钥（与消息加密 key 用途隔离）。 */
 export function apiKeyEncryptionKey(masterKey: Buffer): Buffer {
@@ -67,9 +67,11 @@ export async function resolveLlmConfig(
   }
   const get = (key: string): string | undefined => sv.get(key);
 
+  // provider 归一：历史值 'coze' 视作 'agent'（同一 HTTP 智能体实现），老配置无需迁移
   const providerRaw = (get('llm.provider') ?? config.llm.provider).toLowerCase();
-  const provider: LlmProvider = (VALID_PROVIDERS as readonly string[]).includes(providerRaw)
-    ? (providerRaw as LlmProvider)
+  const providerId = providerRaw === 'coze' ? 'agent' : providerRaw;
+  const provider: LlmProvider = (VALID_PROVIDERS as readonly string[]).includes(providerId)
+    ? (providerId as LlmProvider)
     : 'openai';
   const source: 'settings' | 'env' = get('llm.provider') !== undefined ? 'settings' : 'env';
 
@@ -78,8 +80,8 @@ export async function resolveLlmConfig(
       ? config.llm.openaiBaseUrl
       : provider === 'ollama'
         ? config.llm.ollamaBaseUrl
-        : provider === 'coze'
-          ? config.llm.cozeApiUrl
+        : provider === 'agent'
+          ? config.llm.agentApiUrl
           : null;
   const envModel =
     provider === 'openai'
@@ -90,8 +92,8 @@ export async function resolveLlmConfig(
   const envKey =
     provider === 'openai'
       ? config.llm.openaiApiKey
-      : provider === 'coze'
-        ? config.llm.cozeApiToken
+      : provider === 'agent'
+        ? config.llm.agentApiToken
         : null;
 
   const baseUrlSetting = get('llm.baseUrl');

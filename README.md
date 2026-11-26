@@ -15,7 +15,7 @@
 | 准入 | 邀请码 + 本地账号（scrypt）；OIDC 预留，默认关闭 |
 | 匿名 | 注册即随机昵称 + 确定性头像；界面、广播、历史里都不出现真实身份 |
 | 聊天 | 多房间、WebSocket 实时收发、在线人数、限流 |
-| 语气归一化 | 广播前抹平口头禅/标点/句式；provider 可选 OpenAI 兼容 / Ollama / 扣子 / 关闭 |
+| 语气归一化 | 广播前抹平口头禅/标点/句式；provider 可选 OpenAI 兼容 / Ollama / 自建 HTTP 智能体 / 关闭 |
 | 存储 | 原文 AES-256-GCM 密文入库，接口只返回归一化文本 |
 | 保险库 | 身份映射整表加密 + Shamir K/N 分片；平时封存，溯源需 K 份分片 + 事由 + 审计 |
 | 后台 | 房间/内容/邀请码/LLM 配置；审计与内容治理已脱敏（`admin#N` + 不可逆短引用） |
@@ -42,7 +42,7 @@ docker compose up -d --build   # http://localhost:5000
 pnpm install && pnpm dev:local
 ```
 
-`pnpm dev` 是扣子平台内开发用的启动方式（依赖平台胶水脚本），平台外请用 `pnpm dev:local`。
+`pnpm dev` 是平台内置开发模式的启动方式（依赖平台胶水脚本），平台外请用 `pnpm dev:local`。
 
 上线前请按 [部署文档](docs/DEPLOYMENT.md) 做引导与解封；安全底线见 [安全基线](docs/SECURITY_BASELINE.md)。
 

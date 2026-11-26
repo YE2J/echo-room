@@ -1,6 +1,6 @@
 // ABOUTME: LLM 语气归一化：消息广播前抹平口头禅、标点习惯、固定句式与情绪痕迹，
-// 降低"写作风格指纹"导致的去匿名化风险。支持 OpenAI 兼容接口、本地 Ollama 与扣子
-// 部署智能体（coze，async_run + task 轮询），可开关。
+// 降低"写作风格指纹"导致的去匿名化风险。支持 OpenAI 兼容接口、本地 Ollama 与自建
+// 部署智能体（agent，async_run + task 轮询），可开关。
 // 每次调用前从 settings 热解析配置（settings > env > 默认），管理后台改配无需重启；
 // 每次真实 LLM 调用后向 llm_usage 记一条用量（token 数据来自响应字段，取不到记 NULL，
 // 失败同样记一条 ok=false + error 摘要），不编造数据。
@@ -156,7 +156,7 @@ export class Rewriter {
     input: string,
   ): Promise<{ text: string; usage: LlmUsageSample | null }> {
     if (llm.provider === 'ollama') return this.callOllama(llm, input);
-    if (llm.provider === 'coze') return this.callCoze(llm, input);
+    if (llm.provider === 'agent') return this.callAgent(llm, input);
     return this.callOpenAiCompatible(llm, input);
   }
 
@@ -255,23 +255,23 @@ export class Rewriter {
   }
 
   /**
-   * 扣子部署的「匿名语气改写智能体」：先 POST /async_run 提交异步任务，
+   * 自建部署的「匿名语气改写智能体」：先 POST /async_run 提交异步任务，
    * 再轮询 GET /task/{task_id}，completed 时从 result 取 answer。
    * 提交与轮询整体不超过 timeoutMs；failed/timeout/网络错误抛出，交给 onFailure 处理。
    */
-  private async callCoze(
+  private async callAgent(
     llm: ResolvedLlmConfig,
     input: string,
   ): Promise<{ text: string; usage: LlmUsageSample | null }> {
     if (!llm.apiKey) {
-      throw new Error('coze API Token is not configured');
+      throw new Error('agent API Token is not configured');
     }
-    // 扣子编程项目 ID（15-20 位纯数字，19 位时超出 Number.MAX_SAFE_INTEGER）：从环境变量读取，
+    // 项目 ID（15-20 位纯数字，19 位时超出 Number.MAX_SAFE_INTEGER）：从环境变量读取，
     // 以占位符替换的方式序列化，保证数字精度（project_id 不以引号字符串发送）
-    const projectId = this.config.llm.cozeProjectId;
+    const projectId = this.config.llm.agentProjectId;
     if (!/^\d{15,20}$/.test(projectId)) {
       throw new Error(
-        'LLM_COZE_PROJECT_ID 未配置或格式非法（应为 15-20 位纯数字的扣子编程项目 ID）',
+        'LLM_AGENT_PROJECT_ID 未配置或格式非法（应为 15-20 位纯数字的项目 ID）',
       );
     }
     const base = (llm.baseUrl ?? '').replace(/\/$/, '');
@@ -291,8 +291,8 @@ export class Rewriter {
         },
         type: 'query',
         session_id: 'echo-rewrite',
-        project_id: '__COZE_PROJECT_ID__',
-      }).replace('"__COZE_PROJECT_ID__"', projectId);
+        project_id: '__AGENT_PROJECT_ID__',
+      }).replace('"__AGENT_PROJECT_ID__"', projectId);
       const submitRes = await fetch(`${base}/async_run`, {
         method: 'POST',
         headers,
@@ -301,13 +301,13 @@ export class Rewriter {
       });
       if (!submitRes.ok) {
         const detail = await submitRes.text().catch(() => '');
-        throw new Error(`coze async_run HTTP ${submitRes.status}: ${detail.slice(0, 200)}`);
+        throw new Error(`agent async_run HTTP ${submitRes.status}: ${detail.slice(0, 200)}`);
       }
       const submitted = (await submitRes.json()) as { task_id?: string; code?: number; msg?: string };
       const taskId = submitted.task_id;
       if (!taskId) {
         throw new Error(
-          `coze async_run missing task_id${submitted.msg ? `: ${submitted.msg}` : ''}`,
+          `agent async_run missing task_id${submitted.msg ? `: ${submitted.msg}` : ''}`,
         );
       }
 
@@ -315,7 +315,7 @@ export class Rewriter {
       const POLL_INTERVAL_MS = 1000;
       for (;;) {
         if (Date.now() + POLL_INTERVAL_MS > deadline) {
-          throw new Error(`coze task ${taskId} timed out after ${llm.timeoutMs}ms`);
+          throw new Error(`agent task ${taskId} timed out after ${llm.timeoutMs}ms`);
         }
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
@@ -326,7 +326,7 @@ export class Rewriter {
         });
         if (!pollRes.ok) {
           const detail = await pollRes.text().catch(() => '');
-          throw new Error(`coze task HTTP ${pollRes.status}: ${detail.slice(0, 200)}`);
+          throw new Error(`agent task HTTP ${pollRes.status}: ${detail.slice(0, 200)}`);
         }
         const task = (await pollRes.json()) as {
           status?: string;
@@ -338,11 +338,11 @@ export class Rewriter {
 
         const status = (task.status || '').toLowerCase();
         if (status === 'completed' || status === 'success') {
-          return this.extractCozeResult(task.result);
+          return this.extractAgentResult(task.result);
         }
         if (status === 'failed' || status === 'error') {
           const reason = task.error || task.msg;
-          throw new Error(`coze task failed${reason ? `: ${String(reason).slice(0, 200)}` : ''}`);
+          throw new Error(`agent task failed${reason ? `: ${String(reason).slice(0, 200)}` : ''}`);
         }
         // queued / running / in_progress / pending 等：继续轮询
       }
@@ -352,23 +352,23 @@ export class Rewriter {
   }
 
   /**
-   * 兼容多种扣子智能体任务结果形态：
+   * 兼容多种自建智能体任务结果形态：
    *  - 对象：{ answer: string } / { data: string }，或 LangChain 消息结构
    *    { messages: Array<{ type, content, usage_metadata? }> }（取最后一个 type==='ai' 的文本）；
    *  - JSON 字符串：解析后按上述对象规则处理；
    *  - 纯文本：智能体直接返回改写正文。
    * 同时从 messages 中最后一个 ai 消息提取 usage_metadata（input/output/total_tokens）。
    */
-  private extractCozeResult(result: unknown): { text: string; usage: LlmUsageSample | null } {
+  private extractAgentResult(result: unknown): { text: string; usage: LlmUsageSample | null } {
     if (result === undefined || result === null || result === '') {
-      throw new Error('coze task completed with empty result');
+      throw new Error('agent task completed with empty result');
     }
     if (typeof result === 'string') {
       const trimmed = result.trim();
       // 可能是 JSON 字符串
       if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
         try {
-          return this.extractCozeResult(JSON.parse(trimmed) as unknown);
+          return this.extractAgentResult(JSON.parse(trimmed) as unknown);
         } catch {
           // 非法 JSON：按纯文本结果处理
           return { text: trimmed, usage: null };
@@ -378,18 +378,18 @@ export class Rewriter {
     }
     const obj = result as Record<string, unknown>;
     if (typeof obj.answer === 'string' && obj.answer) {
-      return { text: obj.answer, usage: this.cozeUsageFromMessages(obj.messages) };
+      return { text: obj.answer, usage: this.agentUsageFromMessages(obj.messages) };
     }
     if (typeof obj.data === 'string' && obj.data) {
-      return { text: obj.data, usage: this.cozeUsageFromMessages(obj.messages) };
+      return { text: obj.data, usage: this.agentUsageFromMessages(obj.messages) };
     }
     const text = extractAiText(obj.messages);
-    if (text) return { text, usage: this.cozeUsageFromMessages(obj.messages) };
-    throw new Error('coze result has no answer field');
+    if (text) return { text, usage: this.agentUsageFromMessages(obj.messages) };
+    throw new Error('agent result has no answer field');
   }
 
   /** 从 LangChain 风格 messages 中取最后一个 ai 消息的 usage_metadata（取不到返回 null）。 */
-  private cozeUsageFromMessages(messages: unknown): LlmUsageSample | null {
+  private agentUsageFromMessages(messages: unknown): LlmUsageSample | null {
     if (!Array.isArray(messages)) return null;
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i] as { type?: string; usage_metadata?: unknown };
@@ -435,7 +435,7 @@ export class Rewriter {
 }
 
 /**
- * 从扣子部署返回的 LangChain 风格 messages 数组中提取最后一条 AI 文本。
+ * 从自建部署返回的 LangChain 风格 messages 数组中提取最后一条 AI 文本。
  * content 可能是字符串，或 [{ type:'text', text:string }, ...] 结构。
  */
 function extractAiText(messages: unknown): string {

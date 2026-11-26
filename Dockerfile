@@ -14,7 +14,7 @@ RUN pnpm run build
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-ENV COZE_PROJECT_ENV=PROD
+ENV PLATFORM_ENV=PROD
 # 非 root 运行
 RUN useradd -m -u 10001 echo && mkdir -p /app/.data && chown -R echo:echo /app
 USER echo

@@ -1,3 +1,6 @@
+/.coze
+/.coze-logs
+
 node_modules
 dist
 .DS_Store
@@ -12,7 +15,6 @@ __pycache__/
 *.egg-info/
 /.env
 .env
-.cozeproj/reduction
 
 # JS/TS bundlers & build outputs
 .next
@@ -109,7 +111,6 @@ logs/
 .runtime/
 .tmp_tasks/
 _scan/
-assets/coze_provider_task.md
 dist-server/
 build/
 out/
@@ -153,7 +154,6 @@ node-compile-cache/
 *.tsbuildinfo
 # Vite
 .vite/
-.coze-logs
 .codegraph/
 
 # Echo Room runtime artifacts

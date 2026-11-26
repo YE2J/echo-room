@@ -1103,7 +1103,7 @@ export function openAdminPanel(onUnsealed: () => void): void {
     providerField.appendChild(el('label', '', '模型服务'));
     const providerRow = el('div', 'llm-providers');
     const providerDefs: Array<{ id: LlmProviderId; label: string; hint: string }> = [
-      { id: 'coze', label: '扣子智能体', hint: '扣子部署的改写智能体：需要 baseUrl 与 API Token' },
+      { id: 'agent', label: '自建智能体', hint: 'HTTP 智能体（异步任务 + 轮询）：需要 baseUrl、项目 ID 与 API Token' },
       { id: 'openai', label: 'OpenAI 兼容', hint: '任意 OpenAI 兼容接口（含国内中转）：baseUrl、model 与 API Key' },
       { id: 'ollama', label: '本地 Ollama', hint: '本地 / 内网 Ollama 服务：baseUrl 与 model，一般无需 API Key' },
     ];

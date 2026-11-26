@@ -28,15 +28,18 @@ import { attachUpgrade, registerChatWs } from './ws';
 import { registerHealthRoutes, type HealthState } from './routes/health';
 import type { AppContext } from './context';
 
-const isDev = process.env.COZE_PROJECT_ENV !== 'PROD' && process.env.NODE_ENV !== 'production';
+const isDev =
+  process.env.PLATFORM_ENV !== 'PROD' &&
+  process.env.COZE_PROJECT_ENV !== 'PROD' &&
+  process.env.NODE_ENV !== 'production';
 
 const FOCUS_KEYS = [
   'JWT_SECRET',
   'MESSAGE_ENCRYPTION_KEY',
-  'COZE_PROJECT_ENV',
+  'PLATFORM_ENV',
   'PORT',
   'DEPLOY_RUN_PORT',
-  'COZE_WORKSPACE_PATH',
+  'WORKSPACE_PATH',
   'DATABASE_URL',
   'DB_DRIVER',
   'REDIS_URL',
@@ -102,17 +105,17 @@ async function main(): Promise<void> {
   installCrashGuards(app);
   printEnvDiagnostics(app);
 
-  // 启动校验：LLM_PROVIDER=coze 但缺少必填项 → 生产明确报错退出，禁止静默降级；
+  // 启动校验：LLM_PROVIDER=agent 但缺少必填项 → 生产明确报错退出，禁止静默降级；
   // 开发环境仅打印提示（走本地归一化兜底，避免破坏本地调试）。
-  const cozeMissing = !config.llm.cozeApiUrl || !config.llm.cozeProjectId;
-  if (config.llm.provider === 'coze' && config.isProd && cozeMissing) {
+  const agentMissing = !config.llm.agentApiUrl || !config.llm.agentProjectId;
+  if (config.llm.provider === 'agent' && config.isProd && agentMissing) {
     app.log.error(
-      `[config] LLM_PROVIDER=coze 但 ${!config.llm.cozeApiUrl ? 'LLM_COZE_API_URL' : 'LLM_COZE_PROJECT_ID'} 为空：请在部署平台配置扣子智能体域名与项目 ID 并重启`,
+      `[config] LLM_PROVIDER=agent 但 ${!config.llm.agentApiUrl ? 'LLM_AGENT_API_URL' : 'LLM_AGENT_PROJECT_ID'} 为空：请配置智能体域名与项目 ID 后重启`,
     );
     process.exit(1);
   }
-  if (config.llm.provider === 'coze' && !config.isProd && cozeMissing) {
-    app.log.warn('[config] LLM_PROVIDER=coze 但缺少 LLM_COZE_API_URL / LLM_COZE_PROJECT_ID，改写将走本地归一化兜底');
+  if (config.llm.provider === 'agent' && !config.isProd && agentMissing) {
+    app.log.warn('[config] LLM_PROVIDER=agent 但缺少 LLM_AGENT_API_URL / LLM_AGENT_PROJECT_ID，改写将走本地归一化兜底');
   }
   if (config.bootstrapInviteCodes.length === 0) {
     app.log.warn('[config] 未配置 BOOTSTRAP_INVITE_CODES：未注入引导邀请码，请通过管理后台或 vault-cli invite 签发');

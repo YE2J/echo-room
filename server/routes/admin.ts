@@ -374,7 +374,7 @@ export function registerAdminRoutes(app: FastifyInstance, ctx: AppContext): void
   // ---------------------------------------------------------------------------
 
   const llmConfigPutSchema = z.object({
-    provider: z.enum(['coze', 'openai', 'ollama']).optional(),
+    provider: z.enum(['agent', 'coze', 'openai', 'ollama']).optional(),  // 'coze' 为历史别名
     baseUrl: z.string().max(2048).optional().nullable(),
     model: z.string().max(200).optional().nullable(),
     timeoutMs: z.number().int().min(100).max(600_000).optional(),
