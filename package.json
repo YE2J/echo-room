@@ -3,6 +3,24 @@
   "version": "0.5.0",
   "description": "企业内部匿名意见收集与举报聊天室：实名准入、发言匿名、Shamir 门限可溯源",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YE2J/echo-room.git"
+  },
+  "homepage": "https://github.com/YE2J/echo-room#readme",
+  "bugs": {
+    "url": "https://github.com/YE2J/echo-room/issues"
+  },
+  "keywords": [
+    "anonymous-chat",
+    "chatroom",
+    "fastify",
+    "websocket",
+    "typescript",
+    "privacy",
+    "shamir",
+    "self-hosted"
+  ],
   "scripts": {
     "build": "bash ./scripts/build.sh",
     "dev": "bash ./scripts/dev.sh",
@@ -35,7 +53,6 @@
     "@types/node": "^22.10.5",
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
-    "coze-coding-dev-sdk": "^0.7.32",
     "eslint": "^9",
     "eslint-plugin-import": "^2.32.0",
     "stylelint": "^16.4.0",
